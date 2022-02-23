@@ -6,9 +6,7 @@ import scipy.interpolate
 import time
 import sys
 import os.path
-
-bad_grps = 5
-left_margin = 10
+from constants import LEFT_MARGIN, BAD_GRPS
 
 #@profile
 def apply_nonlinearity(data, filename="jwst_miri_linearity_0024.fits", slitless_left=0, slitless_right=72, slitless_top=528, slitless_bot=944):    
@@ -45,10 +43,10 @@ def subtract_dark(data, filename="jwst_miri_dark_0048.fits"):
     return result
 
 def get_slopes(after_gain, read_noise, max_iter=50):
-    N = N_grp - 1 - bad_grps
+    N = N_grp - 1 - BAD_GRPS
     j = np.array(np.arange(1, N + 1), dtype=float)
 
-    cutout = after_gain[:,bad_grps:,:,left_margin:]
+    cutout = after_gain[:,BAD_GRPS:,:,LEFT_MARGIN:]
     signal_estimate = (cutout[:,-1] - cutout[:, 0]) / N
     error = np.zeros(signal_estimate.shape)
     diff_array = np.diff(cutout, axis=1)
@@ -60,7 +58,7 @@ def get_slopes(after_gain, read_noise, max_iter=50):
         for i in range(len(cutout)):
             ratio_estimate = signal_estimate[i]  / read_noise**2
             ratio_estimate[ratio_estimate < 1e-6] = 1e-6
-            l = np.arccosh(1 + ratio_estimate/N/2)[:, :, np.newaxis]
+            l = np.arccosh(1 + ratio_estimate/2)[:, :, np.newaxis]
             
             weights = ne.evaluate("-read_noise**-2 * exp(l) * (1 - exp(-j*l)) * (exp(j*l - l*N) - exp(l)) / (exp(l) - 1)**2 / (exp(l) + exp(-l*N))")
 
@@ -79,10 +77,10 @@ def get_slopes(after_gain, read_noise, max_iter=50):
 
     #Fill in borders in order to maintain size
     full_signal_estimate = (after_gain[:, -1] - after_gain[:, 0]) / N
-    full_signal_estimate[:,:,left_margin:] = signal_estimate
+    full_signal_estimate[:,:,LEFT_MARGIN:] = signal_estimate
         
     full_error = np.ones(full_signal_estimate.shape) * np.inf
-    full_error[:,:,left_margin:] = error
+    full_error[:,:,LEFT_MARGIN:] = error
     return full_signal_estimate, full_error
 
 
