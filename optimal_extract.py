@@ -1,9 +1,10 @@
-import astropy.io.fits
+from astropy.io import fits
 import sys
 import matplotlib.pyplot as plt
 import numpy as np
 from numpy.polynomial.chebyshev import chebval
 import scipy.linalg
+import os.path
 from constants import HIGH_ERROR, LEFT_MARGIN, EXTRACT_WINDOW, SLITLESS_TOP, SLITLESS_BOT, BAD_GRPS
 from scipy.stats import median_abs_deviation
 
@@ -25,7 +26,7 @@ def fit_spectrum(image_row, spectrum, weights, num_ord=5):
     smoothed_profile = chebval(xs, coeffs)    
     return smoothed_profile
 
-def horne_iteration(image, bkd, spectrum, M, V, badpix, flat_err, read_noise, n_groups_used, sigma=5):
+def horne_iteration(image, bkd, spectrum, M, V, badpix, flat_err, read_noise, n_groups_used, sigma=10):
     #N is the number of groups used, minus one
     V[image == 0] = HIGH_ERROR**2 
     smoothed_profile = np.zeros(image.shape)
@@ -72,7 +73,7 @@ def optimal_extract(image, bkd, badpix, flat_err, read_noise, n_groups_used, max
     counter = 0
     
     while True:        
-        spectrum, spectrum_variance, V, P, new_M, z_scores = horne_iteration(image, bkd, spectrum, M, V, badpix, flat_err, read_noise, n_groups_used, sigma=10)
+        spectrum, spectrum_variance, V, P, new_M, z_scores = horne_iteration(image, bkd, spectrum, M, V, badpix, flat_err, read_noise, n_groups_used)
         #plt.figure(figsize=(16,16))
         #plt.imshow(z_scores, vmin=-10, vmax=10)
         #plt.figure()
@@ -85,7 +86,7 @@ def optimal_extract(image, bkd, badpix, flat_err, read_noise, n_groups_used, max
     return spectrum, spectrum_variance, z_scores, P, M, V
 
 def get_wavelengths(filename="jwst_miri_specwcs_0003.fits"):
-    with astropy.io.fits.open(filename) as hdul:
+    with fits.open(filename) as hdul:
         all_ys = np.arange(SLITLESS_TOP, SLITLESS_BOT)
         wavelengths = np.interp(all_ys,
                                 (hdul[0].header["IMYSLTL"] + hdul[1].data["Y_CENTER"] - 1)[::-1],
@@ -95,8 +96,11 @@ def get_wavelengths(filename="jwst_miri_specwcs_0003.fits"):
 
 
 filename = sys.argv[1]
-with astropy.io.fits.open(filename) as hdul:
+with fits.open(filename) as hdul:
     wavelengths = get_wavelengths()
+    all_spectra = np.zeros((hdul["SCI"].shape[0], hdul["SCI"].shape[1]))
+    all_error = np.zeros((hdul["SCI"].shape[0], hdul["SCI"].shape[1]))
+    
     for i in range(len(hdul["SCI"].data)):
         print("Processing integration", i)
         data = hdul["SCI"].data[i]
@@ -112,6 +116,8 @@ with astropy.io.fits.open(filename) as hdul:
             hdul["RNOISE"].data[s].T,
             hdul[0].header["NGROUPS"] - BAD_GRPS
         )
+        all_spectra[i] = spectrum
+        all_error[i] = np.sqrt(spectrum_variance)           
 
         if i == int(len(hdul["SCI"].data)/2):
             z_scores_filename = "zscores_{}_" + filename[:-4] + "png"
@@ -126,4 +132,10 @@ with astropy.io.fits.open(filename) as hdul:
             plt.plot(spectrum * N, label="Spectra")
             plt.plot(spectrum_variance * N**2, label="Variance")
             plt.savefig(spectra_filename.format(i))
-        
+
+    
+    output_hdul = fits.HDUList([hdul[0],
+                                fits.ImageHDU(all_spectra, name="Spectra"),
+                                fits.ImageHDU(all_error, name="Error"),
+                                fits.BinTableHDU.from_columns([fits.Column(name="Wavelength", format="D", unit="micron", array=wavelengths)])])
+    output_hdul.writeto("x1d_" + os.path.basename(filename), overwrite=True)
