@@ -46,21 +46,26 @@ def get_slopes(after_gain, read_noise, max_iter=50):
     N = N_grp - 1 - BAD_GRPS
     j = np.array(np.arange(1, N + 1), dtype=float)
 
+    R = read_noise[:, LEFT_MARGIN:]
+    #R *= 0
+    #R += 19.7472
     cutout = after_gain[:,BAD_GRPS:,:,LEFT_MARGIN:]
     signal_estimate = (cutout[:,-1] - cutout[:, 0]) / N
     error = np.zeros(signal_estimate.shape)
     diff_array = np.diff(cutout, axis=1)
-    noise = np.sqrt(2*read_noise**2 + signal_estimate)
+    noise = np.sqrt(2*R[np.newaxis,]**2 + signal_estimate)
     bad_mask = np.zeros(diff_array.shape, dtype=bool)
 
     for iteration in range(max_iter):
         old_bad_mask = np.copy(bad_mask)
         for i in range(len(cutout)):
-            ratio_estimate = signal_estimate[i]  / read_noise**2
+            ratio_estimate = signal_estimate[i]  / R**2
             ratio_estimate[ratio_estimate < 1e-6] = 1e-6
             l = np.arccosh(1 + ratio_estimate/2)[:, :, np.newaxis]
-            
-            weights = ne.evaluate("-read_noise**-2 * exp(l) * (1 - exp(-j*l)) * (exp(j*l - l*N) - exp(l)) / (exp(l) - 1)**2 / (exp(l) + exp(-l*N))")
+
+            weights = -R[:,:,np.newaxis]**-2 * ne.evaluate("exp(l) * (1 - exp(-j*l)) * (exp(j*l - l*N) - exp(l)) / (exp(l) - 1)**2 / (exp(l) + exp(-l*N))")
+            #plt.imshow(R)
+            #plt.show()
 
             #Find cosmic rays and other anomalies
             z_scores = (diff_array[i] - signal_estimate[i, np.newaxis]) / noise[i, np.newaxis]
@@ -96,6 +101,10 @@ def apply_flat(signal, error, filename="jwst_miri_flat_0745.fits"):
     final_error[:,invalid] = np.inf
     return final_signal, final_error, flat_err
 
+def get_read_noise(gain, filename="jwst_miri_readnoise_0070.fits"):
+    with astropy.io.fits.open(filename) as hdul:
+        return gain * hdul[1].data
+
 filename = sys.argv[1]
 hdul = astropy.io.fits.open(filename)
 
@@ -115,11 +124,13 @@ print("Applying dark correction")
 after_dark = subtract_dark(after_nonlinear)
 after_gain = after_dark * gain
 
+read_noise = get_read_noise(gain)
 signal, error = get_slopes(after_gain, read_noise)
 final_signal, final_error, flat_err = apply_flat(signal, error)
 
 sci_hdu = astropy.io.fits.ImageHDU(final_signal, name="SCI")
 err_hdu = astropy.io.fits.ImageHDU(final_error, name="ERR")
 flat_err_hdu = astropy.io.fits.ImageHDU(flat_err, name="FLATERR")
-output_hdul = astropy.io.fits.HDUList([hdul[0], sci_hdu, err_hdu, flat_err_hdu])
+read_noise_hdu = astropy.io.fits.ImageHDU(read_noise, name="RNOISE")
+output_hdul = astropy.io.fits.HDUList([hdul[0], sci_hdu, err_hdu, flat_err_hdu, read_noise_hdu])
 output_hdul.writeto("rateints_" + os.path.basename(filename), overwrite=True)

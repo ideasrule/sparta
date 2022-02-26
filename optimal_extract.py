@@ -109,7 +109,7 @@ with astropy.io.fits.open(filename) as hdul:
             hdul["BKD"].data[i][s].T,
             None,
             hdul["FLATERR"].data[s].T,
-            hdul[0].header["RDNOISE"] * hdul[0].header["GAINCF"],
+            hdul["RNOISE"].data[s].T,
             hdul[0].header["NGROUPS"] - BAD_GRPS
         )
 
@@ -126,3 +126,4 @@ with astropy.io.fits.open(filename) as hdul:
             plt.plot(spectrum * N, label="Spectra")
             plt.plot(spectrum_variance * N**2, label="Variance")
             plt.savefig(spectra_filename.format(i))
+        
