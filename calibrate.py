@@ -6,14 +6,14 @@ import scipy.interpolate
 import time
 import sys
 import os.path
-from constants import LEFT_MARGIN, BAD_GRPS
+from constants import LEFT_MARGIN, BAD_GRPS, SLITLESS_LEFT, SLITLESS_RIGHT, SLITLESS_TOP, SLITLESS_BOT
 
 #@profile
-def apply_nonlinearity(data, filename="jwst_miri_linearity_0024.fits", slitless_left=0, slitless_right=72, slitless_top=528, slitless_bot=944):    
+def apply_nonlinearity(data, filename="jwst_miri_linearity_0024.fits"):
     start = time.time()
     data_float = np.array(data, dtype=float)
     with astropy.io.fits.open(filename) as hdul:
-        coeffs = np.copy(hdul[1].data[:, slitless_top:slitless_bot, slitless_left:slitless_right])
+        coeffs = np.copy(hdul[1].data[:, SLITLESS_TOP:SLITLESS_BOT, SLITLESS_LEFT:SLITLESS_RIGHT])
         result = np.zeros(data.shape)
         exp_data = np.ones(data.shape)
         
@@ -86,14 +86,15 @@ def get_slopes(after_gain, read_noise, max_iter=50):
 
 def apply_flat(signal, error, filename="jwst_miri_flat_0745.fits"):
     with astropy.io.fits.open(filename) as hdul:
-        flat = hdul[1].data
+        flat = hdul["SCI"].data
+        flat_err = hdul["ERR"].data
 
     invalid = np.isnan(flat)
     flat[invalid] = 1
     final_signal = signal / flat
-    final_error = error / flat
+    final_error = np.sqrt((error / flat)**2 + final_signal**2 * flat_err**2)
     final_error[:,invalid] = np.inf
-    return final_signal, final_error
+    return final_signal, final_error, flat_err
 
 filename = sys.argv[1]
 hdul = astropy.io.fits.open(filename)
@@ -115,9 +116,10 @@ after_dark = subtract_dark(after_nonlinear)
 after_gain = after_dark * gain
 
 signal, error = get_slopes(after_gain, read_noise)
-final_signal, final_error = apply_flat(signal, error)
+final_signal, final_error, flat_err = apply_flat(signal, error)
 
 sci_hdu = astropy.io.fits.ImageHDU(final_signal, name="SCI")
 err_hdu = astropy.io.fits.ImageHDU(final_error, name="ERR")
-output_hdul = astropy.io.fits.HDUList([hdul[0], sci_hdu, err_hdu])
+flat_err_hdu = astropy.io.fits.ImageHDU(flat_err, name="FLATERR")
+output_hdul = astropy.io.fits.HDUList([hdul[0], sci_hdu, err_hdu, flat_err_hdu])
 output_hdul.writeto("rateints_" + os.path.basename(filename), overwrite=True)
