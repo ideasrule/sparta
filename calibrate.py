@@ -34,12 +34,15 @@ def subtract_dark(data, filename="jwst_miri_dark_0048.fits"):
     N_int_dark = dark.shape[0]
     N_grp_dark = dark.shape[1]
     
-    assert(N_int > N_int_dark)
     assert(N_grp <= N_grp_dark)
     
     result = np.copy(data)
-    result[:N_int_dark] -= dark[:, :N_grp]
-    result[N_int_dark:] -= dark[-1, :N_grp]
+
+    if N_int > N_int_dark:
+        result[:N_int_dark] -= dark[:, :N_grp]
+        result[N_int_dark:] -= dark[-1, :N_grp]
+    else:
+        result -= dark[:N_int, :N_grp]
     return result
 
 def get_slopes(after_gain, read_noise, max_iter=50):
@@ -122,10 +125,13 @@ after_nonlinear = apply_nonlinearity(data)
 
 print("Applying dark correction")
 after_dark = subtract_dark(after_nonlinear)
+print("Applying gain correction")
 after_gain = after_dark * gain
 
 read_noise = get_read_noise(gain)
+print("Getting slopes")
 signal, error = get_slopes(after_gain, read_noise)
+print("Applying flat")
 final_signal, final_error, flat_err = apply_flat(signal, error)
 
 sci_hdu = astropy.io.fits.ImageHDU(final_signal, name="SCI")
