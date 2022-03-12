@@ -7,7 +7,7 @@ from algorithms import reject_beginning, bin_data, get_mad, \
 import emcee
 import argparse
 from configparser import ConfigParser
-from emcee_methods import lnprob_with_time_slope as lnprob
+from emcee_methods import lnprob as lnprob
 from emcee_methods import get_batman_params, run_emcee
 import time
 import corner
@@ -27,9 +27,9 @@ def correct_lc(wavelengths, fluxes, bjds, t0, per, rp, a, inc,
     #First guess for PLD corrections based on PCA components
     b = a*np.cos(inc*np.pi/180)
     if extra_phase_terms:
-        initial_params = np.array([0, 0, fp, C1, D1, C2, D2, rp, a, b, get_mad(fluxes), 0, -6e-3])
+        initial_params = np.array([0, 0, fp, C1, D1, C2, D2, rp, a, b, get_mad(fluxes), 0, 1])
     else:
-        initial_params = np.array([0, 0, fp, C1, D1, rp, a, b, get_mad(fluxes), 0, -6e-3])
+        initial_params = np.array([0, 0, fp, C1, D1, rp, a, b, get_mad(fluxes), 0, 1])
 
     #All arguments, aside from the parameters, that will be passed to lnprob
     w = 2*np.pi/per
@@ -40,6 +40,7 @@ def correct_lc(wavelengths, fluxes, bjds, t0, per, rp, a, inc,
     #plt.show()
     
     best_step, chain = run_emcee(lnprob, lnprob_args, initial_params, nwalkers, output_file_prefix, burn_in_runs, production_runs)
+    print("Best step", best_step)
     residuals = lnprob(best_step, *lnprob_args, plot_result=True, return_residuals=True)
     chain = chain[int(len(chain)/2):]
 
