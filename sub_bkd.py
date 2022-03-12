@@ -57,7 +57,7 @@ image = hdul[1].data - background
 sci_hdu = astropy.io.fits.ImageHDU(image, name="SCI")
 bkd_hdu = astropy.io.fits.ImageHDU(background, name="BKD")
 
-output_hdul = astropy.io.fits.HDUList([hdul[0], sci_hdu, hdul["ERR"], hdul["FLATERR"], bkd_hdu])
+output_hdul = astropy.io.fits.HDUList([hdul[0], sci_hdu, hdul["ERR"], hdul["FLATERR"], bkd_hdu, hdul["RNOISE"]])
 output_hdul.writeto("bkdsub_" + os.path.basename(filename), overwrite=True)
 
 plt.imshow(background[0])
