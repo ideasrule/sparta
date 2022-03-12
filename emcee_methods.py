@@ -104,7 +104,7 @@ def plot_fit_and_residuals(phases, binsize, Lobserved, Lexpected, star_variation
 
 
 #@profile    
-def lnprob_with_time_slope(params, initial_batman_params, transit_model, eclipse_model, bjds,
+def lnprob(params, initial_batman_params, transit_model, eclipse_model, bjds,
                            fluxes, initial_t0, extra_phase_terms=False, plot_result=False, max_Fp=1,
                            return_residuals=False):
     
@@ -123,19 +123,19 @@ def lnprob_with_time_slope(params, initial_batman_params, transit_model, eclipse
     rp = params[end_phase_terms]
     a_star = params[end_phase_terms + 1]
     b = params[end_phase_terms + 2]
-    #inc = np.arccos(b/a_star) * 180/np.pi
+    inc = np.arccos(b/a_star) * 180/np.pi
     
     error = params[end_phase_terms + 3]
     slope = params[end_phase_terms + 4]
     Fstar = params[end_phase_terms + 5]
 
     #Fix some parameters
-    slope = 0
-    a_star = 4.435
-    b = 0.8523
-    inc = 78.9
-    transit_offset = 0.00012
-    eclipse_offset = 0.0012
+    #slope = 0
+    #a_star = 4.435
+    #b = 0.8523
+    #inc = 78.9
+    #transit_offset = 0.00012
+    #eclipse_offset = 0.0012
     
     batman_params = initial_batman_params
     batman_params.t0 = initial_t0 + transit_offset
@@ -171,15 +171,6 @@ def lnprob_with_time_slope(params, initial_batman_params, transit_model, eclipse
     residuals = Lexpected - Lobserved
     result = -0.5*(np.sum(residuals**2/error**2 - np.log(1.0/error**2)))
 
-
-    '''if result/len(residuals) > 5.28:
-        plt.scatter(bjds, Lobserved)
-        plt.plot(bjds, Lexpected, color='r')
-                
-        plt.figure()
-        plt.scatter(bjds, residuals)
-        plt.show()'''
-    
     if plot_result:
         star_variation = slope*(bjds-bjds[0])*transit_model.light_curve(batman_params)
         binsize = 1
@@ -188,8 +179,6 @@ def lnprob_with_time_slope(params, initial_batman_params, transit_model, eclipse
         phases -= np.round(np.median(phases))
 
         plot_fit_and_residuals(phases, binsize, Lobserved, Lexpected, star_variation)
-        plt.figure()
-    
         plt.figure()
         plt.scatter(bjds, Lplanet)
 
@@ -211,7 +200,73 @@ def lnprob_with_time_slope(params, initial_batman_params, transit_model, eclipse
         print("result")
     return result
 
+def lnprob_limited(params, batman_params, transit_model, eclipse_model, bjds,
+                           fluxes, initial_t0, extra_phase_terms=False, plot_result=False, max_Fp=1,
+                           return_residuals=False):
+    Fp = params[0]
+    C1 = params[1]
+    D1 = params[2]
+    if extra_phase_terms:
+        C2 = params[3]
+        D2 = params[4]
+        end_phase_terms = 5
+    else:
+        end_phase_terms = 3
+    rp = params[end_phase_terms]
+    error = params[end_phase_terms + 1]
+    Fstar = params[end_phase_terms + 2]
+          
+    if Fstar <= 0:
+        return - np.inf
 
+    if Fp >= max_Fp: return -np.inf
+    if error <= 0: return -np.inf
+    if rp <= 0 or rp >= 1: return -np.inf
+
+    batman_params.rp = rp
+    Lstar = transit_model.light_curve(batman_params)
+    if extra_phase_terms:
+        Lplanet = get_planet_flux(eclipse_model, batman_params, batman_params.t0, batman_params.per, bjds, Fp, C1, D1, C2, D2, t_secondary=batman_params.t_secondary)
+    else:
+        Lplanet = get_planet_flux(eclipse_model, batman_params, batman_params.t0, batman_params.per, bjds, Fp, C1, D1, t_secondary=batman_params.t_secondary)
+
+    if np.min(Lplanet) < 0: return -np.inf
+    Lexpected = Fstar * (Lstar + Lplanet)
+    Lobserved = fluxes
+    
+    residuals = Lexpected - Lobserved
+    result = -0.5*(np.sum(residuals**2/error**2 - np.log(1.0/error**2)))
+    
+    if plot_result:
+        binsize = 1
+        #residuals -= np.mean(residuals)
+        phases = (bjds-batman_params.t0)/batman_params.per
+        phases -= np.round(np.median(phases))
+
+        plot_fit_and_residuals(phases, binsize, Lobserved, Lexpected, 0)
+    
+        plt.figure()
+        plt.scatter(bjds, Lplanet)
+
+        plt.figure()
+        plt.scatter(bjds, Lstar)
+
+
+        print(np.std(residuals[phases < -0.09]), np.std(residuals[phases > -0.09]))
+    if np.random.randint(0, 1000) == 0:
+        print(result/len(residuals), Fstar, Fp, np.median(np.abs(residuals)), rp)
+    #if result/len(residuals) > 4.7:
+    #    Lplanet = get_planet_flux(eclipse_model, batman_params, batman_params.t0, batman_params.per, bjds, Fp, C1, D1, t_secondary=batman_params.t_secondary, pdb=True)
+        
+    #print(result/len(residuals), Fp, np.median(np.abs(residuals)), rp, a_star, inc, b)
+    if return_residuals:
+        return residuals    
+
+    if np.isnan(result):
+        import pdb
+        pdb.set_trace()
+        print("result")
+    return result
 
 
 def get_initial_positions(initial_params, lnprob, lnprob_args, nwalkers):
