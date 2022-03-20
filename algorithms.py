@@ -25,7 +25,7 @@ def smooth(data, window_len=101):
     return scipy.signal.medfilt(data, window_len)
     
     
-def reject_beginning(bjds, fluxes, cutoff_in_days=0.1, max_separation_in_days=0.01):
+def reject_beginning(bjds, fluxes, errors, cutoff_in_days=0.1, max_separation_in_days=0.01):
     #now make a beginning mask
     start_points = []
     beginning_mask = []
@@ -40,7 +40,7 @@ def reject_beginning(bjds, fluxes, cutoff_in_days=0.1, max_separation_in_days=0.
     print("Num of starting points: ", len(start_points))
     print("Number of points rejected at beginning: " + str(np.sum(beginning_mask)))
     valid_data = ~beginning_mask    
-    return bjds[valid_data], fluxes[valid_data]
+    return bjds[valid_data], fluxes[valid_data], errors[valid_data]
     
 
 def calc_binned_rms(residuals, photon_noise, min_datapoints = 16):
@@ -68,6 +68,7 @@ def get_data(start_bin, end_bin, file_pattern="x1d_bkdsub_rateints_ERS_NGTS10_20
     filenames = glob.glob(file_pattern)
     mjds = []
     data = []
+    errors = []
 
     for filename in filenames:
         with fits.open(filename) as hdul:        
@@ -77,19 +78,18 @@ def get_data(start_bin, end_bin, file_pattern="x1d_bkdsub_rateints_ERS_NGTS10_20
             for i in range(2, len(hdul)):
                 wavelengths = hdul[i].data["WAVELENGTH"]
                 data.append(hdul[i].data["FLUX"])
+                errors.append(hdul[i].data["ERROR"])
 
     argsort = np.argsort(mjds)
     data = np.array(data)[argsort]
+    errors = np.array(errors)[argsort]
     mjds = np.array(mjds)[argsort]
 
-    #cond = np.logical_and(wavelengths > min_wavelength, wavelengths < max_wavelength)
-    #wavelengths = wavelengths[cond]
-    #data = data[:,cond]
     wavelengths = wavelengths[start_bin:end_bin]
     fluxes = np.sum(data[:,start_bin:end_bin], axis=1)
-    #plt.plot(fluxes)
-    #plt.show()
-    return mjds, fluxes, wavelengths
+    flux_errors = np.sqrt(np.sum(errors[:, start_bin:end_bin]**2, axis=1))
+    
+    return mjds, fluxes, flux_errors, wavelengths
     
 
 def print_percentiles(chain):

@@ -12,7 +12,7 @@ from emcee_methods import get_batman_params, run_emcee
 import time
 import corner
 
-def correct_lc(wavelengths, fluxes, bjds, t0, per, rp, a, inc,
+def correct_lc(wavelengths, fluxes, errors, bjds, t0, per, rp, a, inc,
                limb_dark_coeffs, fp, C1, D1, C2, D2, output_file_prefix="chain",
                nwalkers=100, burn_in_runs=100, production_runs=1000, extra_phase_terms=False):
     print("Median is", np.median(fluxes))
@@ -25,15 +25,17 @@ def correct_lc(wavelengths, fluxes, bjds, t0, per, rp, a, inc,
     eclipse_model = batman.TransitModel(initial_batman_params, bjds, transittype='secondary')
 
     #First guess for PLD corrections based on PCA components
+    error_factor = 0.2 #get_mad(fluxes) / np.median(errors)
+    print("Error factor", error_factor)
     b = a*np.cos(inc*np.pi/180)
     if extra_phase_terms:
-        initial_params = np.array([0, 0, fp, C1, D1, C2, D2, rp, a, b, get_mad(fluxes), 0, 1])
+        initial_params = np.array([0, 0, fp, C1, D1, C2, D2, rp, a, b, error_factor, 0, 1])
     else:
-        initial_params = np.array([0, 0, fp, C1, D1, rp, a, b, get_mad(fluxes), 0, 1])
+        initial_params = np.array([0, 0, fp, C1, D1, rp, a, b, error_factor, 0, 1])
 
     #All arguments, aside from the parameters, that will be passed to lnprob
     w = 2*np.pi/per
-    lnprob_args = (initial_batman_params, transit_model, eclipse_model, bjds, fluxes, t0, extra_phase_terms)
+    lnprob_args = (initial_batman_params, transit_model, eclipse_model, bjds, fluxes, errors, t0, extra_phase_terms)
 
     #Plot initial
     #residuals = lnprob(initial_params, *lnprob_args, plot_result=True, return_residuals=True)
@@ -84,18 +86,19 @@ parser.add_argument("--extra-phase-terms", action="store_true", help="Include C2
 
 args = parser.parse_args()
 
-bjds, fluxes, wavelengths = get_data(args.start_bin, args.end_bin)
+bjds, fluxes, flux_errors, wavelengths = get_data(args.start_bin, args.end_bin)
 #plt.scatter(bjds, fluxes)
-bjds, fluxes = reject_beginning(bjds, fluxes)
+bjds, fluxes, flux_errors = reject_beginning(bjds, fluxes, flux_errors)
 #plt.scatter(bjds, fluxes)
 #plt.show()
 
 
 bin_size = args.bin_size
 binned_fluxes = bin_data(fluxes, bin_size)
-binned_fluxes /= np.median(binned_fluxes)
+factor = np.median(binned_fluxes)
+binned_fluxes /= factor
+binned_errors = np.sqrt(bin_data(flux_errors**2, bin_size) / bin_size) / factor
 binned_bjds = bin_data(bjds, bin_size)
-
 
 #get values from configuration file
 default_section_name = "DEFAULT"
@@ -103,7 +106,7 @@ config = ConfigParser()
 config.read(args.config_file)
 items = dict(config.items(default_section_name))
 
-correct_lc(wavelengths, binned_fluxes, binned_bjds, float(items["t0"]), float(items["per"]),
+correct_lc(wavelengths, binned_fluxes, binned_errors, binned_bjds, float(items["t0"]), float(items["per"]),
            float(items["rp"]), float(items["a"]), float(items["inc"]), eval(items["limb_dark_coeffs"]),
            float(items["fp"]), float(items["c1"]), float(items["d1"]), float(items["c2"]), float(items["d2"]),
            args.output, args.num_walkers, args.burn_in_runs, args.production_runs, args.extra_phase_terms)
