@@ -8,7 +8,7 @@ import os.path
 from constants import HIGH_ERROR, LEFT_MARGIN, EXTRACT_WINDOW, SLITLESS_TOP, SLITLESS_BOT, BAD_GRPS
 from scipy.stats import median_abs_deviation
 
-def fit_spectrum(image_row, spectrum, weights, num_ord=4):
+def fit_spectrum(image_row, spectrum, weights, num_ord=5):
     cols = np.arange(len(spectrum))
     xs = (cols - np.mean(cols))/len(cols) * 2
     A = []
@@ -26,7 +26,7 @@ def fit_spectrum(image_row, spectrum, weights, num_ord=4):
     smoothed_profile = chebval(xs, coeffs)    
     return smoothed_profile
 
-def horne_iteration(image, bkd, spectrum, M, V, badpix, flat_err, read_noise, n_groups_used, sigma=10):
+def horne_iteration(image, bkd, spectrum, M, V, badpix, flat_err, read_noise, n_groups_used, sigma=5):
     #N is the number of groups used, minus one
     V[image == 0] = HIGH_ERROR**2 
     smoothed_profile = np.zeros(image.shape)
@@ -63,6 +63,9 @@ def horne_iteration(image, bkd, spectrum, M, V, badpix, flat_err, read_noise, n_
     return spectrum, spectrum_variance, V, smoothed_profile, M, z_scores
 
 def optimal_extract(image, bkd, badpix, flat_err, read_noise, n_groups_used, max_iter=10):
+    #plt.imshow(image, aspect='auto', vmin=0, vmax=20)
+    #plt.show()
+    
     if badpix is None:
         badpix = np.zeros(image.shape, dtype=bool)
         
@@ -83,7 +86,7 @@ def optimal_extract(image, bkd, badpix, flat_err, read_noise, n_groups_used, max
         if np.all(M == new_M) or counter > max_iter: break
         M = new_M
         counter += 1
-
+    print("Final std of z_scores (should be around 1)", np.std(z_scores[M]))
     return spectrum, spectrum_variance, z_scores, simple_spectrum
 
 def get_wavelengths(filename="jwst_miri_specwcs_0003.fits"):
@@ -139,6 +142,7 @@ with fits.open(filename) as hdul:
             plt.figure(0, figsize=(18,3))
             plt.imshow(z_scores, vmin=-5, vmax=5, aspect='auto')
             plt.savefig(z_scores_filename.format(i))
+            #plt.show()
 
             spectra_filename = "spectra_{}_" + filename[:-4] + "png"
             N = hdul[0].header["NGROUPS"] - 1 - BAD_GRPS
