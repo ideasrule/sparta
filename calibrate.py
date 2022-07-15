@@ -6,13 +6,27 @@ import scipy.interpolate
 import time
 import sys
 import os.path
-from constants import LEFT_MARGIN, BAD_GRPS, SLITLESS_LEFT, SLITLESS_RIGHT, SLITLESS_TOP, SLITLESS_BOT
+from constants import LEFT_MARGIN, BAD_GRPS, SLITLESS_LEFT, SLITLESS_RIGHT, SLITLESS_TOP, SLITLESS_BOT, NONLINEAR_FILE, DARK_FILE, FLAT_FILE, RNOISE_FILE, RESET_FILE, GAIN
+
+def apply_reset(data):
+    after_reset = np.copy(data)
+    with astropy.io.fits.open(RESET_FILE) as hdul:
+        reset = hdul[1].data
+        print("Note: throw away first {} integrations".format(reset.shape[0] - 1))
+        N_grp = data.shape[1]
+        N_grp_reset = reset.shape[1]
+        if N_grp <= N_grp_reset:
+            after_reset -= reset[-1, :N_grp]
+        else:
+            after_reset[:, :N_grp_reset] -= reset[-1]
+
+    return after_reset
 
 #@profile
-def apply_nonlinearity(data, filename="jwst_miri_linearity_0024.fits"):
+def apply_nonlinearity(data):
     start = time.time()
     data_float = np.array(data, dtype=float)
-    with astropy.io.fits.open(filename) as hdul:
+    with astropy.io.fits.open(NONLINEAR_FILE) as hdul:
         coeffs = np.copy(hdul[1].data[:, SLITLESS_TOP:SLITLESS_BOT, SLITLESS_LEFT:SLITLESS_RIGHT])
         result = np.zeros(data.shape)
         exp_data = np.ones(data.shape)
@@ -27,8 +41,8 @@ def apply_nonlinearity(data, filename="jwst_miri_linearity_0024.fits"):
 
 
 #Dark current subtraction
-def subtract_dark(data, filename="jwst_miri_dark_0048.fits"):    
-    with astropy.io.fits.open(filename) as dark_hdul:
+def subtract_dark(data):
+    with astropy.io.fits.open(DARK_FILE) as dark_hdul:
         dark = dark_hdul[1].data
 
     N_int_dark = dark.shape[0]
@@ -45,13 +59,14 @@ def subtract_dark(data, filename="jwst_miri_dark_0048.fits"):
         result -= dark[:N_int, :N_grp]
     return result
 
-def get_slopes(after_gain, read_noise, max_iter=50):
+def get_slopes(after_gain, read_noise, initial_run=True, max_iter=50):
+    if initial_run:
+        max_iter = 1
+        
     N = N_grp - 1 - BAD_GRPS
     j = np.array(np.arange(1, N + 1), dtype=float)
 
     R = read_noise[:, LEFT_MARGIN:]
-    #R *= 0
-    #R += 19.7472
     cutout = after_gain[:,BAD_GRPS:,:,LEFT_MARGIN:]
     signal_estimate = (cutout[:,-1] - cutout[:, 0]) / N
     error = np.zeros(signal_estimate.shape)
@@ -72,7 +87,10 @@ def get_slopes(after_gain, read_noise, max_iter=50):
 
             #Find cosmic rays and other anomalies
             z_scores = (diff_array[i] - signal_estimate[i, np.newaxis]) / noise[i, np.newaxis]
-            bad_mask[i] = np.abs(z_scores) > 5
+            if initial_run:
+                bad_mask[i] = np.zeros(z_scores.shape, dtype=bool)
+            else:
+                bad_mask[i] = np.abs(z_scores) > 5
             weights[bad_mask[i].transpose(1,2,0)] = 0
 
             signal_estimate[i] = np.sum(diff_array[i].transpose(1,2,0) * weights, axis=2) / np.sum(weights, axis=2)
@@ -92,8 +110,8 @@ def get_slopes(after_gain, read_noise, max_iter=50):
     return full_signal_estimate, full_error
 
 
-def apply_flat(signal, error, filename="jwst_miri_flat_0745.fits"):
-    with astropy.io.fits.open(filename) as hdul:
+def apply_flat(signal, error):
+    with astropy.io.fits.open(FLAT_FILE) as hdul:
         flat = hdul["SCI"].data
         flat_err = hdul["ERR"].data
 
@@ -104,12 +122,19 @@ def apply_flat(signal, error, filename="jwst_miri_flat_0745.fits"):
     final_error[:,invalid] = np.inf
     return final_signal, final_error, flat_err
 
-def get_read_noise(gain, filename="jwst_miri_readnoise_0070.fits"):
-    with astropy.io.fits.open(filename) as hdul:
-        return gain * hdul[1].data
+def get_read_noise():
+    with astropy.io.fits.open(RNOISE_FILE) as hdul:
+        return GAIN * hdul[1].data[SLITLESS_TOP:SLITLESS_BOT, SLITLESS_LEFT:SLITLESS_RIGHT]
 
 filename = sys.argv[1]
 hdul = astropy.io.fits.open(filename)
+if len(sys.argv) == 2:
+    initial_run = True
+elif len(sys.argv) == 3:
+    initial_run = False
+    residual_correction = np.load(sys.argv[2])
+else:
+    assert(False)
 
 #Assumptions for dark current subtraction
 assert(hdul[0].header["NFRAMES"] == 1)
@@ -117,20 +142,25 @@ assert(hdul[0].header["GROUPGAP"] == 0)
 
 data = hdul[1].data
 N_int, N_grp, N_row, N_col = data.shape
-gain = hdul[0].header["GAINCF"]
-read_noise = gain * hdul[0].header["RDNOISE"]
+
+print("Applying reset correction")
+after_reset = apply_reset(data)
 
 print("Applying non-linearity correction")
-after_nonlinear = apply_nonlinearity(data)
+after_nonlinear = apply_nonlinearity(after_reset)
 
 print("Applying dark correction")
 after_dark = subtract_dark(after_nonlinear)
-print("Applying gain correction")
-after_gain = after_dark * gain
 
-read_noise = get_read_noise(gain)
+print("Applying gain correction")
+after_gain = after_dark * GAIN
+
+read_noise = get_read_noise()
 print("Getting slopes")
-signal, error = get_slopes(after_gain, read_noise)
+#import pdb
+#pdb.set_trace()
+
+signal, error = get_slopes(after_gain, read_noise, False)
 print("Applying flat")
 final_signal, final_error, flat_err = apply_flat(signal, error)
 
