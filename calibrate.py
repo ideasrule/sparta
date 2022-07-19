@@ -6,12 +6,20 @@ import scipy.interpolate
 import time
 import sys
 import os.path
-from constants import LEFT_MARGIN, BAD_GRPS, SLITLESS_LEFT, SLITLESS_RIGHT, SLITLESS_TOP, SLITLESS_BOT, NONLINEAR_FILE, DARK_FILE, FLAT_FILE, RNOISE_FILE, RESET_FILE, GAIN
+import pdb
+import gc
+from constants import LEFT_MARGIN, BAD_GRPS, SLITLESS_LEFT, SLITLESS_RIGHT, SLITLESS_TOP, SLITLESS_BOT, NONLINEAR_FILE, DARK_FILE, FLAT_FILE, RNOISE_FILE, RESET_FILE, MASK_FILE, GAIN
+
+def get_mask():
+    with astropy.io.fits.open(MASK_FILE) as hdul:
+        mask = hdul["DQ"].data[SLITLESS_TOP:SLITLESS_BOT, SLITLESS_LEFT:SLITLESS_RIGHT]
+    return mask
 
 def apply_reset(data):
     after_reset = np.copy(data)
     with astropy.io.fits.open(RESET_FILE) as hdul:
         reset = hdul[1].data
+        dq = hdul["DQ"].data
         print("Note: throw away first {} integrations".format(reset.shape[0] - 1))
         N_grp = data.shape[1]
         N_grp_reset = reset.shape[1]
@@ -20,23 +28,24 @@ def apply_reset(data):
         else:
             after_reset[:, :N_grp_reset] -= reset[-1]
 
-    return after_reset
+    return after_reset, dq
 
 #@profile
-def apply_nonlinearity(data):
+def apply_nonlinearity(data):   
     start = time.time()
-    data_float = np.array(data, dtype=float)
+
     with astropy.io.fits.open(NONLINEAR_FILE) as hdul:
-        coeffs = np.copy(hdul[1].data[:, SLITLESS_TOP:SLITLESS_BOT, SLITLESS_LEFT:SLITLESS_RIGHT])
+        dq = hdul["DQ"].data[SLITLESS_TOP:SLITLESS_BOT, SLITLESS_LEFT:SLITLESS_RIGHT]
+        coeffs = hdul[1].data[:, SLITLESS_TOP:SLITLESS_BOT, SLITLESS_LEFT:SLITLESS_RIGHT]
         result = np.zeros(data.shape)
         exp_data = np.ones(data.shape)
         
         for i in range(len(coeffs)):
             result += coeffs[i] * exp_data
-            exp_data *= data_float
+            exp_data *= data
     end = time.time()
     print("Non linearity took", end - start)
-    return result
+    return result, dq
 
 
 
@@ -44,6 +53,7 @@ def apply_nonlinearity(data):
 def subtract_dark(data):
     with astropy.io.fits.open(DARK_FILE) as dark_hdul:
         dark = dark_hdul[1].data
+        mask = dark[-1,0] == 0
 
     N_int_dark = dark.shape[0]
     N_grp_dark = dark.shape[1]
@@ -57,23 +67,59 @@ def subtract_dark(data):
         result[N_int_dark:] -= dark[-1, :N_grp]
     else:
         result -= dark[:N_int, :N_grp]
-    return result
+    return result, mask
 
-def get_slopes(after_gain, read_noise, initial_run=True, max_iter=50):
-    if initial_run:
-        max_iter = 1
+def get_slopes_initial(after_gain, read_noise):
+    N_grp = after_gain.shape[1]
+    N = N_grp - 1 - 1 #reject last group
+    j = np.array(np.arange(1, N + 1), dtype=float)
+
+    R = read_noise[:, LEFT_MARGIN:]
+    cutout = after_gain[:,:-1,:,LEFT_MARGIN:] #reject last group
+    signal_estimate = (cutout[:,-1] - cutout[:, 0]) / N
+    error = np.zeros(signal_estimate.shape)
+    diff_array = np.diff(cutout, axis=1)
+    noise = np.sqrt(2*R[np.newaxis,]**2 + np.abs(signal_estimate))
+
+    for i in range(len(cutout)):
+        ratio_estimate = signal_estimate[i]  / R**2
+        ratio_estimate[ratio_estimate < 1e-6] = 1e-6
+        l = np.arccosh(1 + ratio_estimate/2)[:, :, np.newaxis]
+
+        weights = -R[:,:,np.newaxis]**-2 * ne.evaluate("exp(l) * (1 - exp(-j*l)) * (exp(j*l - l*N) - exp(l)) / (exp(l) - 1)**2 / (exp(l) + exp(-l*N))")
+        signal_estimate[i] = np.sum(diff_array[i].transpose(1,2,0) * weights, axis=2) / np.sum(weights, axis=2)                
+        error[i] = 1. / np.sqrt(np.sum(weights, axis=2))
+
+    #Fill in borders in order to maintain size
+    full_signal_estimate = (after_gain[:, -1] - after_gain[:, 0]) / N
+    full_signal_estimate[:,:,LEFT_MARGIN:] = signal_estimate
         
+    full_error = np.ones(full_signal_estimate.shape) * np.inf
+    full_error[:,:,LEFT_MARGIN:] = error
+
+    residuals = after_gain - (full_signal_estimate*np.arange(N_grp)[:,np.newaxis,np.newaxis,np.newaxis]).transpose((1,0,2,3))
+    median_residuals = np.median(residuals, axis=0)
+    median_residuals -= np.median(median_residuals, axis=0)
+
+    return full_signal_estimate, full_error, median_residuals
+
+
+def get_slopes(after_gain, read_noise, max_iter=50):
     N = N_grp - 1 - BAD_GRPS
     j = np.array(np.arange(1, N + 1), dtype=float)
 
     R = read_noise[:, LEFT_MARGIN:]
     cutout = after_gain[:,BAD_GRPS:,:,LEFT_MARGIN:]
-    signal_estimate = (cutout[:,-1] - cutout[:, 0]) / N
-    error = np.zeros(signal_estimate.shape)
+    #signal_estimate = (cutout[:,-1] - cutout[:, 0]) / N
+
     diff_array = np.diff(cutout, axis=1)
+    signal_estimate = np.clip(np.median(diff_array, axis=1), 0, None)
+    error = np.zeros(signal_estimate.shape)
     noise = np.sqrt(2*R[np.newaxis,]**2 + signal_estimate)
     bad_mask = np.zeros(diff_array.shape, dtype=bool)
+    #pixel_bad_mask = np.zeros(signal_estimate.shape, dtype=bool)
 
+    #pdb.set_trace()
     for iteration in range(max_iter):
         old_bad_mask = np.copy(bad_mask)
         for i in range(len(cutout)):
@@ -87,12 +133,15 @@ def get_slopes(after_gain, read_noise, initial_run=True, max_iter=50):
 
             #Find cosmic rays and other anomalies
             z_scores = (diff_array[i] - signal_estimate[i, np.newaxis]) / noise[i, np.newaxis]
-            if initial_run:
-                bad_mask[i] = np.zeros(z_scores.shape, dtype=bool)
-            else:
-                bad_mask[i] = np.abs(z_scores) > 5
+            bad_mask[i] = np.abs(z_scores) > 5
             weights[bad_mask[i].transpose(1,2,0)] = 0
-
+            weights_sum = np.sum(weights, axis=2)
+            if np.sum(weights_sum == 0) > 0:
+                bad_pos = np.argwhere(weights_sum == 0)
+                print("These pixels are bad in integration {}: y,x={}".format(i, bad_pos))
+                #pixel_bad_mask[bad_pos] = True
+                weights[bad_pos] += 1
+                
             signal_estimate[i] = np.sum(diff_array[i].transpose(1,2,0) * weights, axis=2) / np.sum(weights, axis=2)
             error[i] = 1. / np.sqrt(np.sum(weights, axis=2))
 
@@ -101,13 +150,27 @@ def get_slopes(after_gain, read_noise, initial_run=True, max_iter=50):
             break
         print("Num changed", iteration, num_changed)
 
+    #gc.collect()
     #Fill in borders in order to maintain size
     full_signal_estimate = (after_gain[:, -1] - after_gain[:, 0]) / N
     full_signal_estimate[:,:,LEFT_MARGIN:] = signal_estimate
         
     full_error = np.ones(full_signal_estimate.shape) * np.inf
     full_error[:,:,LEFT_MARGIN:] = error
-    return full_signal_estimate, full_error
+
+    #full_pixel_mask = np.zeros(full_signal_estimate.shape, dtype=bool)
+    #full_pixel_mask[:,:,LEFT_MARGIN:] = pixel_mask
+
+    #Free some memory
+    cutout = None
+    diff_array = None
+    bad_mask = None
+    gc.collect()
+    
+    residuals = after_gain - (full_signal_estimate*np.arange(N_grp)[:,np.newaxis,np.newaxis,np.newaxis]).transpose((1,0,2,3))
+    median_residuals = np.median(residuals, axis=0)
+    median_residuals -= np.median(median_residuals, axis=0)
+    return full_signal_estimate, full_error, median_residuals
 
 
 def apply_flat(signal, error):
@@ -128,45 +191,52 @@ def get_read_noise():
 
 filename = sys.argv[1]
 hdul = astropy.io.fits.open(filename)
-if len(sys.argv) == 2:
-    initial_run = True
-elif len(sys.argv) == 3:
-    initial_run = False
-    residual_correction = np.load(sys.argv[2])
-else:
-    assert(False)
 
 #Assumptions for dark current subtraction
 assert(hdul[0].header["NFRAMES"] == 1)
 assert(hdul[0].header["GROUPGAP"] == 0)
 
-data = hdul[1].data
+data = np.array(hdul[1].data, dtype=float)
 N_int, N_grp, N_row, N_col = data.shape
 
+mask = get_mask()
+
 print("Applying reset correction")
-after_reset = apply_reset(data)
+data, dq = apply_reset(data)
+mask |= dq
 
 print("Applying non-linearity correction")
-after_nonlinear = apply_nonlinearity(after_reset)
+data, dq = apply_nonlinearity(data)
+mask |= dq
+gc.collect()
 
 print("Applying dark correction")
-after_dark = subtract_dark(after_nonlinear)
+data, dark_mask = subtract_dark(data)
+mask |= dark_mask
 
 print("Applying gain correction")
-after_gain = after_dark * GAIN
+data = data * GAIN
 
 read_noise = get_read_noise()
-print("Getting slopes")
+print("Getting slopes 1")
 #import pdb
 #pdb.set_trace()
 
-signal, error = get_slopes(after_gain, read_noise, False)
+signal, error, residuals1 = get_slopes_initial(data, read_noise)
+data -= residuals1
+
+print("Getting slopes 2")
+signal, error, residuals2 = get_slopes(data, read_noise)
 print("Applying flat")
 final_signal, final_error, flat_err = apply_flat(signal, error)
 
+
 sci_hdu = astropy.io.fits.ImageHDU(final_signal, name="SCI")
 err_hdu = astropy.io.fits.ImageHDU(final_error, name="ERR")
+dq_hdu = astropy.io.fits.ImageHDU(mask, name="DQ")
 flat_err_hdu = astropy.io.fits.ImageHDU(flat_err, name="FLATERR")
+res1_hdu = astropy.io.fits.ImageHDU(residuals1, name="RESIDUALS1")
+res2_hdu = astropy.io.fits.ImageHDU(residuals2, name="RESIDUALS2")
 read_noise_hdu = astropy.io.fits.ImageHDU(read_noise, name="RNOISE")
-output_hdul = astropy.io.fits.HDUList([hdul[0], sci_hdu, err_hdu, flat_err_hdu, read_noise_hdu])
+output_hdul = astropy.io.fits.HDUList([hdul[0], sci_hdu, err_hdu, dq_hdu, flat_err_hdu, read_noise_hdu, res1_hdu, res2_hdu])
 output_hdul.writeto("rateints_" + os.path.basename(filename), overwrite=True)
