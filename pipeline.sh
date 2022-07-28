@@ -1,12 +1,12 @@
 #!/bin/bash
 
+DIR="$(dirname "${BASH_SOURCE[0]}")"
 #ex: ./pipeline.sh ERS_NGTS10_2022_seg_???.fits
 for filename in "$@"
 do
     echo $filename
-    python calibrate.py $filename
-    python sub_bkd.py rateints_$filename
-    python optimal_extract.py bkdsub_rateints_$filename
+    #python $DIR/calibrate.py $filename
+    python $DIR/simple_extract.py rateints_$filename
 done
 
 #To do phase curve fitting:

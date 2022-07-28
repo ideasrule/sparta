@@ -1,7 +1,7 @@
 import numpy as np
 import sys
 import matplotlib
-#matplotlib.use("Agg")
+matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import batman
 from algorithms import reject_beginning, bin_data, get_mad, \
@@ -38,7 +38,7 @@ def correct_lc(wavelengths, fluxes, errors, bjds, t0, per, rp, a, inc,
     transit_model = batman.TransitModel(batman_params, bjds)
     error_factor = 1.6
     print("Error factor", error_factor)
-    initial_params = np.array([rp, error_factor, 0, 1, 0, 1./24, 0, 0.05/24])
+    initial_params = np.array([rp**2, error_factor, 0, 1])
 
     #All arguments, aside from the parameters, that will be passed to lnprob
     w = 2*np.pi/per
@@ -52,12 +52,13 @@ def correct_lc(wavelengths, fluxes, errors, bjds, t0, per, rp, a, inc,
     residuals = lnprob(best_step, *lnprob_args, plot_result=True, return_residuals=True)
     chain = chain[int(len(chain)/2):]
 
-    print_stats(chain[:,0], "rp")
+    print_stats(chain[:,0], "depth")
     print_stats(chain[:,1], "error")
+    print_stats(chain[:,2], "slope")
     plt.figure()
     
-    corner.corner(chain, range=[0.99] * chain.shape[1], labels=["rp", "error", "slope", "Fstar", "A", "tau", "A2", "tau2"])
-    plt.show()
+    corner.corner(chain, range=[0.99] * chain.shape[1], labels=["rp", "error", "slope", "Fstar"])
+    #plt.show()
     
     if not os.path.exists(output_txt):
         with open(output_txt, "w") as f:

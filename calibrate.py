@@ -8,7 +8,7 @@ import sys
 import os.path
 import pdb
 import gc
-from constants import LEFT_MARGIN, BAD_GRPS, SLITLESS_LEFT, SLITLESS_RIGHT, SLITLESS_TOP, SLITLESS_BOT, NONLINEAR_FILE, DARK_FILE, FLAT_FILE, RNOISE_FILE, RESET_FILE, MASK_FILE, GAIN
+from constants import LEFT_MARGIN, BAD_GRPS, SLITLESS_LEFT, SLITLESS_RIGHT, SLITLESS_TOP, SLITLESS_BOT, NONLINEAR_FILE, DARK_FILE, FLAT_FILE, RNOISE_FILE, RESET_FILE, MASK_FILE, GAIN, NONLINEAR_COEFFS
 
 def get_mask():
     with astropy.io.fits.open(MASK_FILE) as hdul:
@@ -33,19 +33,14 @@ def apply_reset(data):
 #@profile
 def apply_nonlinearity(data):   
     start = time.time()
+    c2, c3, c4 = NONLINEAR_COEFFS
 
-    with astropy.io.fits.open(NONLINEAR_FILE) as hdul:
-        dq = hdul["DQ"].data[SLITLESS_TOP:SLITLESS_BOT, SLITLESS_LEFT:SLITLESS_RIGHT]
-        coeffs = hdul[1].data[:, SLITLESS_TOP:SLITLESS_BOT, SLITLESS_LEFT:SLITLESS_RIGHT]
-        result = np.zeros(data.shape)
-        exp_data = np.ones(data.shape)
-        
-        for i in range(len(coeffs)):
-            result += coeffs[i] * exp_data
-            exp_data *= data
+    data2 = data * data
+    result = data + c2 * data2 + c3 * data2*data + c4 * data2 * data2
     end = time.time()
     print("Non linearity took", end - start)
-    return result, dq
+    mask = np.zeros(data[0,0].shape, dtype=bool)
+    return result, mask
 
 
 
@@ -117,7 +112,7 @@ def get_slopes(after_gain, read_noise, max_iter=50):
     error = np.zeros(signal_estimate.shape)
     noise = np.sqrt(2*R[np.newaxis,]**2 + signal_estimate)
     bad_mask = np.zeros(diff_array.shape, dtype=bool)
-    #pixel_bad_mask = np.zeros(signal_estimate.shape, dtype=bool)
+    pixel_bad_mask = np.zeros(signal_estimate.shape, dtype=bool)
 
     #pdb.set_trace()
     for iteration in range(max_iter):
@@ -137,9 +132,9 @@ def get_slopes(after_gain, read_noise, max_iter=50):
             weights[bad_mask[i].transpose(1,2,0)] = 0
             weights_sum = np.sum(weights, axis=2)
             if np.sum(weights_sum == 0) > 0:
-                bad_pos = np.argwhere(weights_sum == 0)
+                bad_pos = np.nonzero(weights_sum == 0)
                 print("These pixels are bad in integration {}: y,x={}".format(i, bad_pos))
-                #pixel_bad_mask[bad_pos] = True
+                pixel_bad_mask[i][bad_pos] = True
                 weights[bad_pos] += 1
                 
             signal_estimate[i] = np.sum(diff_array[i].transpose(1,2,0) * weights, axis=2) / np.sum(weights, axis=2)
@@ -158,8 +153,8 @@ def get_slopes(after_gain, read_noise, max_iter=50):
     full_error = np.ones(full_signal_estimate.shape) * np.inf
     full_error[:,:,LEFT_MARGIN:] = error
 
-    #full_pixel_mask = np.zeros(full_signal_estimate.shape, dtype=bool)
-    #full_pixel_mask[:,:,LEFT_MARGIN:] = pixel_mask
+    full_pixel_mask = np.zeros(full_signal_estimate.shape, dtype=bool)
+    full_pixel_mask[:,:,LEFT_MARGIN:] = pixel_bad_mask
 
     #Free some memory
     cutout = None
@@ -170,10 +165,10 @@ def get_slopes(after_gain, read_noise, max_iter=50):
     residuals = after_gain - (full_signal_estimate*np.arange(N_grp)[:,np.newaxis,np.newaxis,np.newaxis]).transpose((1,0,2,3))
     median_residuals = np.median(residuals, axis=0)
     median_residuals -= np.median(median_residuals, axis=0)
-    return full_signal_estimate, full_error, median_residuals
+    return full_signal_estimate, full_error, full_pixel_mask, median_residuals
 
 
-def apply_flat(signal, error):
+def apply_flat(signal, error, include_flat_error=False):
     with astropy.io.fits.open(FLAT_FILE) as hdul:
         flat = hdul["SCI"].data
         flat_err = hdul["ERR"].data
@@ -181,7 +176,10 @@ def apply_flat(signal, error):
     invalid = np.isnan(flat)
     flat[invalid] = 1
     final_signal = signal / flat
-    final_error = np.sqrt((error / flat)**2 + final_signal**2 * flat_err**2)
+    if include_flat_error:
+        final_error = np.sqrt((error / flat)**2 + final_signal**2 * flat_err**2)
+    else:
+        final_error = error / flat
     final_error[:,invalid] = np.inf
     return final_signal, final_error, flat_err
 
@@ -226,14 +224,15 @@ signal, error, residuals1 = get_slopes_initial(data, read_noise)
 data -= residuals1
 
 print("Getting slopes 2")
-signal, error, residuals2 = get_slopes(data, read_noise)
+signal, error, per_int_mask, residuals2 = get_slopes(data, read_noise)
 print("Applying flat")
 final_signal, final_error, flat_err = apply_flat(signal, error)
-
+#pdb.set_trace()
+per_int_mask = per_int_mask | mask
 
 sci_hdu = astropy.io.fits.ImageHDU(final_signal, name="SCI")
 err_hdu = astropy.io.fits.ImageHDU(final_error, name="ERR")
-dq_hdu = astropy.io.fits.ImageHDU(mask, name="DQ")
+dq_hdu = astropy.io.fits.ImageHDU(per_int_mask, name="DQ")
 flat_err_hdu = astropy.io.fits.ImageHDU(flat_err, name="FLATERR")
 res1_hdu = astropy.io.fits.ImageHDU(residuals1, name="RESIDUALS1")
 res2_hdu = astropy.io.fits.ImageHDU(residuals2, name="RESIDUALS2")

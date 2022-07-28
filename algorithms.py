@@ -1,3 +1,4 @@
+import pdb
 import numpy as np
 import sys
 import scipy.signal
@@ -7,9 +8,11 @@ from sklearn.neighbors import NearestNeighbors
 from astropy.stats import sigma_clipped_stats
 from astropy.stats import sigma_clip
 from scipy.stats import binned_statistic
+from scipy.ndimage import uniform_filter
 from sklearn.decomposition import PCA
 import scipy.stats
 import glob
+import pickle
 from astropy.io import fits
 
 def get_mad(data):
@@ -25,7 +28,7 @@ def smooth(data, window_len=101):
     return scipy.signal.medfilt(data, window_len)
     
     
-def reject_beginning(bjds, fluxes, errors, cutoff_in_days=0.1, max_separation_in_days=0.01):
+def reject_beginning(bjds, fluxes, errors, cutoff_in_days=0.0, max_separation_in_days=0.01):
     #now make a beginning mask
     start_points = []
     beginning_mask = []
@@ -62,8 +65,112 @@ def calc_binned_rms(residuals, photon_noise, min_datapoints = 16):
         log_bin_size += 1
     return bin_sizes, all_rms, photon_noises
 
+def robust_polyfit(xs, ys, deg, target_xs=None, include_residuals=False, inverse_sigma=None):
+    if target_xs is None: target_xs = xs
+    ys = astropy.stats.sigma_clip(ys)
+    residuals = ys - np.polyval(np.ma.polyfit(xs, ys, deg), xs)
+    ys.mask = astropy.stats.sigma_clip(residuals).mask
+    last_mask = np.copy(ys.mask)
+    while True:
+        coeffs = np.ma.polyfit(xs, ys, deg, w=inverse_sigma)
+        predicted_ys = np.polyval(coeffs, xs)
+        residuals = ys - predicted_ys
+        ys.mask = astropy.stats.sigma_clip(residuals).mask
+        if np.all(ys.mask == last_mask):
+            break
+        else:
+            last_mask = np.copy(ys.mask)
+        
+    result = np.polyval(coeffs, target_xs)
+    if include_residuals:
+        return result, residuals
+    return result
 
-def get_data(start_bin, end_bin, file_pattern="x1d_bkdsub_rateints_ERS_NGTS10_2022_seg_???.fits"):
+def get_data_pickle(start_bin, end_bin, trim_start=525, filename="data.pkl"):
+    result = pickle.load(open(filename, "rb"))
+    if end_bin == -1:
+        end_bin = len(result["wavelengths"])
+
+    data = np.sum(result["data"][trim_start:, start_bin:end_bin], axis=1)
+    var = result["errors"]**2
+    errors = np.sqrt(np.sum(var[trim_start:, start_bin:end_bin], axis=1))
+    median = np.median(data)
+    data /= median
+    errors /= median
+    #plt.plot(result["y"], '.')
+    #plt.show()
+    y = result["y"][trim_start:] #- robust_polyfit(result["times"][trim_start:], result["y"][trim_start:], 1)
+    
+    
+    return result["times"][trim_start:], data, errors, result["wavelengths"][start_bin:end_bin], y
+
+
+def get_data_txt(start_bin, end_bin, trim_start=2000, filename="lightcurve.txt"):
+    wavelength, time, flux, error = np.loadtxt(filename, unpack=True)
+    unique_wavelengths = np.sort(np.unique(wavelength))
+    print(unique_wavelengths[48:54])
+    #print("Ind", np.argwhere(unique_wavelengths == 6.6584))
+    if end_bin == -1:
+        end_bin = len(unique_wavelengths)
+    #pdb.set_trace()
+
+    binned_fluxes = 0.
+    binned_errors = 0.
+    for b in range(start_bin, end_bin):
+        cond = wavelength == unique_wavelengths[b]
+        binned_fluxes += flux[cond]
+        binned_errors += error[cond]**2
+
+    binned_errors = np.sqrt(binned_errors)
+    median = np.median(binned_fluxes)
+
+    '''#pdb.set_trace()
+    test_fluxes = []
+    test_var = []
+    test_waves = []
+    for i in range(int(len(unique_wavelengths)/6)):
+        start = 6*i
+        end = start + 6
+        lc = 0.
+        var = 0.
+        test_waves.append(np.mean(unique_wavelengths[start:end]))
+        for b in range(start, end):
+            lc += flux[wavelength == unique_wavelengths[b]][trim_start:]
+            var += error[wavelength == unique_wavelengths[b]][trim_start:]**2
+        
+        test_fluxes.append(lc)
+        test_var.append(var)
+
+    test_fluxes = np.array(test_fluxes)
+    test_var = np.array(test_var)
+    t1 = 3000
+    t2 = 3300
+    t3 = 5600
+    t4 = 6000
+    
+    for i in range(test_fluxes.shape[0]):
+        out_flux = test_fluxes[i, 0:t1].sum() + test_fluxes[i, t4:].sum()
+        out_var = test_var[i, 0:t1].sum() + test_var[i, t4:].sum()
+        in_flux = test_fluxes[i, t2:t3].sum()
+        in_var = test_var[i, t2:t3].sum()
+        in_flux_mean = in_flux / (t3-t2)
+        out_flux_mean = out_flux / (test_fluxes.shape[1] - t4 + t1)
+        depth = 1 - in_flux_mean / out_flux_mean
+        print(test_waves[i], 1e6 * depth, 1e6 * np.sqrt(out_var/out_flux**2 + in_var/in_flux**2))
+    
+    pdb.set_trace()
+    plt.imshow(test_fluxes, aspect='auto', vmin=0.995, vmax=1.005)
+    plt.figure()
+    plt.plot(test_fluxes[28])
+    plt.plot(test_fluxes[29])
+    plt.plot(test_fluxes[30])
+    plt.show()'''
+
+    
+    return np.unique(time)[trim_start:], binned_fluxes[trim_start:] / median, binned_errors[trim_start:] / median, unique_wavelengths[start_bin : end_bin]
+    
+
+def get_data(start_bin, end_bin, file_pattern="x1d_bkdsub_rateints_ERS_NGTS10_2022_new_nodrift_seg_???.fits"):
     DAY_TO_SEC = 86400
     filenames = glob.glob(file_pattern)
     mjds = []

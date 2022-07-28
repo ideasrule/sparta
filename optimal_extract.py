@@ -5,7 +5,8 @@ import numpy as np
 from numpy.polynomial.chebyshev import chebval
 import scipy.linalg
 import os.path
-from constants import HIGH_ERROR, LEFT_MARGIN, EXTRACT_WINDOW, SLITLESS_TOP, SLITLESS_BOT, BAD_GRPS
+import pdb
+from constants import HIGH_ERROR, LEFT_MARGIN, EXTRACT_Y_MIN, EXTRACT_Y_MAX, OPT_EXTRACT_WINDOW, SLITLESS_TOP, SLITLESS_BOT, BAD_GRPS, WCS_FILE, BKD_WIDTH
 from scipy.stats import median_abs_deviation
 
 def fit_spectrum(image_row, spectrum, weights, num_ord=5):
@@ -23,10 +24,14 @@ def fit_spectrum(image_row, spectrum, weights, num_ord=5):
     Bw = image_row * np.sqrt(weights)
     coeffs, residuals, rank, s = scipy.linalg.lstsq(Aw, Bw)    
     predicted = Aw.dot(coeffs)
-    smoothed_profile = chebval(xs, coeffs)    
+    smoothed_profile = chebval(xs, coeffs)
+    #plt.plot(image_row)
+    #plt.plot(predicted / np.sqrt(weights))
+    #plt.show()
+    
     return smoothed_profile
 
-def horne_iteration(image, bkd, spectrum, M, V, badpix, flat_err, read_noise, n_groups_used, sigma=5):
+def horne_iteration(image, bkd, spectrum, M, V, badpix, flat_err, read_noise, n_groups_used, sigma=10):
     #N is the number of groups used, minus one
     V[image == 0] = HIGH_ERROR**2 
     smoothed_profile = np.zeros(image.shape)
@@ -68,6 +73,7 @@ def optimal_extract(image, bkd, badpix, flat_err, read_noise, n_groups_used, max
     
     if badpix is None:
         badpix = np.zeros(image.shape, dtype=bool)
+    print("Num badpix", np.sum(badpix))
         
     spectrum = np.sum(image, axis=0)
     simple_spectrum = np.copy(spectrum)
@@ -89,8 +95,8 @@ def optimal_extract(image, bkd, badpix, flat_err, read_noise, n_groups_used, max
     print("Final std of z_scores (should be around 1)", np.std(z_scores[M]))
     return spectrum, spectrum_variance, z_scores, simple_spectrum
 
-def get_wavelengths(filename="jwst_miri_specwcs_0003.fits"):
-    with fits.open(filename) as hdul:
+def get_wavelengths():
+    with fits.open(WCS_FILE) as hdul:
         all_ys = np.arange(SLITLESS_TOP, SLITLESS_BOT)
         wavelengths = np.interp(all_ys,
                                 (hdul[0].header["IMYSLTL"] + hdul[1].data["Y_CENTER"] - 1)[::-1],
@@ -110,33 +116,36 @@ with fits.open(filename) as hdul:
         fits.Column(name="int_start_BJD_TDB", format="f8"),
         fits.Column(name="int_mid_BJD_TDB", format="f8"),
         fits.Column(name="int_end_BJD_TDB", format="f8")])
-    
+
+    #pdb.set_trace()
     hdulist = [hdul[0], second_hdu]
     
     for i in range(len(hdul["SCI"].data)):
         print("Processing integration", i)
-        data = hdul["SCI"].data[i]
+        
+        data = hdul["SCI"].data[i][EXTRACT_Y_MIN:EXTRACT_Y_MAX]
         data[:, 0:LEFT_MARGIN] = 0
+        bkd = np.mean(data[:, -BKD_WIDTH:], axis=1)
         profile = np.sum(data, axis=0)
         trace_loc = np.argmax(profile)
-        s = np.s_[:, trace_loc - EXTRACT_WINDOW : trace_loc + EXTRACT_WINDOW]
+        s = np.s_[EXTRACT_Y_MIN:EXTRACT_Y_MAX, trace_loc - OPT_EXTRACT_WINDOW : trace_loc + OPT_EXTRACT_WINDOW + 1]
         spectrum, variance, z_scores, simple_spectrum = optimal_extract(
-            hdul["SCI"].data[i][s].T,
-            hdul["BKD"].data[i][s].T,
-            None,
+            (hdul["SCI"].data[i][s] - bkd[:,np.newaxis]).T,
+            (hdul["SCI"].data[i][s]*0 + bkd[:,np.newaxis]).T,
+            hdul["DQ"].data[i][s].T != 0,
             hdul["FLATERR"].data[s].T,
             hdul["RNOISE"].data[s].T,
             hdul[0].header["NGROUPS"] - BAD_GRPS
         )
         
         hdulist.append(fits.BinTableHDU.from_columns([
-            fits.Column(name="WAVELENGTH", format="D", unit="um", array=wavelengths),
+            fits.Column(name="WAVELENGTH", format="D", unit="um", array=wavelengths[EXTRACT_Y_MIN:EXTRACT_Y_MAX]),
             fits.Column(name="FLUX", format="D", unit="Electrons/group", array=spectrum),
             fits.Column(name="ERROR", format="D", unit="Electrons/group", array=np.sqrt(variance)),
             fits.Column(name="SIMPLE FLUX", format="D", unit="Electrons/group", array=simple_spectrum)
         ]))
 
-        if i == int(len(hdul["SCI"].data)/2):
+        if i == 20: #int(len(hdul["SCI"].data)/2):
             z_scores_filename = "zscores_{}_" + filename[:-4] + "png"
             plt.clf()
             plt.figure(0, figsize=(18,3))
@@ -144,7 +153,7 @@ with fits.open(filename) as hdul:
             plt.savefig(z_scores_filename.format(i))
             #plt.show()
 
-            spectra_filename = "spectra_{}_" + filename[:-4] + "png"
+            spectra_filename = "optspectra_{}_" + filename[:-4] + "png"
             N = hdul[0].header["NGROUPS"] - 1 - BAD_GRPS
             plt.clf()
             plt.plot(spectrum * N, label="Spectra")
@@ -153,4 +162,4 @@ with fits.open(filename) as hdul:
 
     
     output_hdul = fits.HDUList(hdulist)    
-    output_hdul.writeto("x1d_" + os.path.basename(filename), overwrite=True)
+    output_hdul.writeto("optx1d_" + os.path.basename(filename), overwrite=True)
