@@ -57,11 +57,8 @@ def subtract_dark(data):
     
     result = np.copy(data)
 
-    if N_int > N_int_dark:
-        result[:N_int_dark] -= dark[:, :N_grp]
-        result[N_int_dark:] -= dark[-1, :N_grp]
-    else:
-        result -= dark[:N_int, :N_grp]
+    print("Note: throw away first {} integrations".format(dark.shape[0] - 1))
+    result -= dark[-1, :N_grp]
     return result, mask
 
 def get_slopes_initial(after_gain, read_noise):
