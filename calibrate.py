@@ -133,6 +133,9 @@ def get_slopes(after_gain, read_noise, max_iter=50):
                 print("These pixels are bad in integration {}: y,x={}".format(i, bad_pos))
                 pixel_bad_mask[i][bad_pos] = True
                 weights[bad_pos] += 1
+
+            slightly_bad = np.sum(bad_mask[i], axis=0) > 5
+            pixel_bad_mask[i][slightly_bad] = True
                 
             signal_estimate[i] = np.sum(diff_array[i].transpose(1,2,0) * weights, axis=2) / np.sum(weights, axis=2)
             error[i] = 1. / np.sqrt(np.sum(weights, axis=2))
@@ -214,8 +217,6 @@ data = data * GAIN
 
 read_noise = get_read_noise()
 print("Getting slopes 1")
-#import pdb
-#pdb.set_trace()
 
 signal, error, residuals1 = get_slopes_initial(data, read_noise)
 data -= residuals1
@@ -223,8 +224,8 @@ data -= residuals1
 print("Getting slopes 2")
 signal, error, per_int_mask, residuals2 = get_slopes(data, read_noise)
 print("Applying flat")
+
 final_signal, final_error, flat_err = apply_flat(signal, error)
-#pdb.set_trace()
 per_int_mask = per_int_mask | mask
 
 sci_hdu = astropy.io.fits.ImageHDU(final_signal, name="SCI")
