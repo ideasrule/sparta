@@ -86,23 +86,20 @@ def robust_polyfit(xs, ys, deg, target_xs=None, include_residuals=False, inverse
         return result, residuals
     return result
 
-def get_data_pickle(start_bin, end_bin, trim_start=525, filename="data.pkl"):
+def get_data_pickle(min_wavelength, max_wavelength, trim_start=525, filename="data.pkl"):
     result = pickle.load(open(filename, "rb"))
-    if end_bin == -1:
-        end_bin = len(result["wavelengths"])
-
-    data = np.sum(result["data"][trim_start:, start_bin:end_bin], axis=1)
+    cond = np.logical_and(result["wavelengths"] >= min_wavelength/1000,
+                          result["wavelengths"] < max_wavelength/1000)
+    
+    data = np.sum(result["data"][trim_start:, cond], axis=1)
     var = result["errors"]**2
-    errors = np.sqrt(np.sum(var[trim_start:, start_bin:end_bin], axis=1))
+    errors = np.sqrt(np.sum(var[trim_start:, cond], axis=1))
     median = np.median(data)
     data /= median
     errors /= median
-    #plt.plot(result["y"], '.')
-    #plt.show()
     y = result["y"][trim_start:] #- robust_polyfit(result["times"][trim_start:], result["y"][trim_start:], 1)
-    
-    
-    return result["times"][trim_start:], data, errors, result["wavelengths"][start_bin:end_bin], y
+
+    return result["times"][trim_start:], data, errors, result["wavelengths"][cond], y #, result["fl"][trim_start:] - np.mean(result["fl"][trim_start:]), result["fc"][trim_start:] - np.mean(result["fc"][trim_start:]), result["fr"][trim_start:] - np.mean(result["fr"][trim_start:])
 
 
 def get_data_txt(start_bin, end_bin, trim_start=2000, filename="lightcurve.txt"):
