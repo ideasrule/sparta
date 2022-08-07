@@ -51,7 +51,7 @@ def correct_lc(wavelengths, fluxes, errors, bjds, y, t0, t_secondary, per, rp, a
     transit_model = batman.TransitModel(batman_params, bjds)
     eclipse_model = batman.TransitModel(batman_params, bjds, transittype='secondary')
 
-    error_factor = 1.1
+    error_factor = 1.6
     print("Error factor", error_factor)
     if extra_phase_terms:
         initial_params = np.array([fp, C1, D1, C2, D2, rp, error_factor, 0, 1, 0, 0.1, 0])
@@ -67,7 +67,7 @@ def correct_lc(wavelengths, fluxes, errors, bjds, y, t0, t_secondary, per, rp, a
     #plt.show()
     
     best_step, chain = run_emcee(lnprob, lnprob_args, initial_params, nwalkers, output_file_prefix, burn_in_runs, production_runs)
-    residuals = lnprob(best_step, *lnprob_args, plot_result=True, return_residuals=True, wavelength=np.mean(wavelengths))
+    best_lnprob, residuals = lnprob(best_step, *lnprob_args, plot_result=True, return_residuals=True, wavelength=np.mean(wavelengths))
     chain = chain[int(len(chain)/2):]
 
     A = np.sqrt(chain[:,1]**2 + chain[:,2]**2)
@@ -93,18 +93,19 @@ def correct_lc(wavelengths, fluxes, errors, bjds, y, t0, t_secondary, per, rp, a
     
     if not os.path.exists(output_txt):
         with open(output_txt, "w") as f:
-            f.write("#min_wavelength max_wavelength A_med A_lower_err A_upper_err phi_med phi_lower_err phi_upper_err Fp_med Fp_lower_err Fp_upper_err RpRs_med RpRs_lower_err RpRs_upper_err night_Fp_med night_Fp_lower_err night_Fp_upper_err\n")
+            f.write("#min_wavelength max_wavelength A_med A_lower_err A_upper_err phi_med phi_lower_err phi_upper_err Fp_med Fp_lower_err Fp_upper_err RpRs_med RpRs_lower_err RpRs_upper_err night_Fp_med night_Fp_lower_err night_Fp_upper_err lnprob\n")
     
     with open(output_txt, "a") as f:
         f.write("{} {} ".format(wavelengths[-1], wavelengths[0]))
         for var in (A, phi, chain[:,0], chain[:,3], night_Fp):
             f.write("{} {} {} ".format(np.median(var), np.median(var) - np.percentile(var, 16), np.percentile(var, 84) - np.median(var)))
+        f.write("{}".format(best_lnprob))
         f.write("\n")
 
 parser = argparse.ArgumentParser(description="Extracts phase curve and transit information from light curves")
 parser.add_argument("config_file", help="Contains transit, eclipse, and phase curve parameters")
-parser.add_argument("start_bin", type=int)
-parser.add_argument("end_bin", type=int)
+parser.add_argument("start_wave", type=float)
+parser.add_argument("end_wave", type=float)
 parser.add_argument("-b", "--bin-size", type=int, default=1, help="Bin size to use on data")
 parser.add_argument("--burn-in-runs", type=int, default=1000, help="Number of burn in runs")
 parser.add_argument("--production-runs", type=int, default=1000, help="Number of production runs")
@@ -113,9 +114,10 @@ parser.add_argument("-o", "--output", type=str, default="chain", help="Directory
 parser.add_argument("--extra-phase-terms", action="store_true", help="Include C2 and D2 in phase curve fit")
 
 args = parser.parse_args()
-bjds, fluxes, flux_errors, wavelengths, y = get_data_pickle(args.start_bin, args.end_bin)
+bjds, fluxes, flux_errors, wavelengths, y = get_data_pickle(args.start_wave, args.end_wave)
 fluxes, flux_errors, bjds, y = reject_outliers(fluxes, flux_errors, bjds, y)
 print("Wavelengths", wavelengths)
+
 
 bin_size = args.bin_size
 binned_fluxes = bin_data(fluxes, bin_size)
@@ -130,9 +132,6 @@ binned_y = bin_data(y, bin_size)
 
 binned_fluxes, binned_errors, binned_bjds, binned_y = reject_outliers(binned_fluxes, binned_errors, binned_bjds, binned_y)
 
-#plt.errorbar(binned_bjds, binned_fluxes, yerr=binned_errors, fmt='.')
-#plt.show()
-
 #get values from configuration file
 default_section_name = "DEFAULT"
 config = ConfigParser()
@@ -140,6 +139,7 @@ config.read(args.config_file)
 items = dict(config.items(default_section_name))
 limb_dark_coeffs = estimate_limb_dark(np.mean(wavelengths))
 print("Found limb dark coeffs", limb_dark_coeffs)
+print("# points", len(binned_fluxes))
 
 correct_lc(wavelengths, binned_fluxes, binned_errors, binned_bjds, binned_y, float(items["t0"]), float(items["t_secondary"]), float(items["per"]),
            float(items["rp"]), float(items["a"]), float(items["inc"]), limb_dark_coeffs,

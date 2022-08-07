@@ -79,8 +79,8 @@ def correct_lc(wavelengths, fluxes, errors, bjds, y, t0, per, rp, a, inc,
 
 parser = argparse.ArgumentParser(description="Extracts phase curve and transit information from light curves")
 parser.add_argument("config_file", help="Contains transit, eclipse, and phase curve parameters")
-parser.add_argument("start_bin", type=int)
-parser.add_argument("end_bin", type=int)
+parser.add_argument("start_wave", type=float)
+parser.add_argument("end_wave", type=float)
 parser.add_argument("-b", "--bin-size", type=int, default=1, help="Bin size to use on data")
 parser.add_argument("--burn-in-runs", type=int, default=1000, help="Number of burn in runs")
 parser.add_argument("--production-runs", type=int, default=1000, help="Number of production runs")
@@ -90,7 +90,7 @@ parser.add_argument("--extra-phase-terms", action="store_true", help="Include C2
 
 args = parser.parse_args()
 
-bjds, fluxes, flux_errors, wavelengths, y = get_data_pickle(args.start_bin, args.end_bin)
+bjds, fluxes, flux_errors, wavelengths, y = get_data_pickle(args.start_wave, args.end_wave)
 
 bin_size = args.bin_size
 binned_fluxes = bin_data(fluxes, bin_size)

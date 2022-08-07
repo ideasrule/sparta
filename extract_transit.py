@@ -3,7 +3,7 @@ import sys
 import matplotlib.pyplot as plt
 import batman
 from algorithms import reject_beginning, bin_data, get_mad, \
-    get_data_txt, print_stats
+    get_data_pickle, print_stats
 import emcee
 import argparse
 from configparser import ConfigParser
@@ -63,8 +63,8 @@ def correct_lc(wavelengths, fluxes, errors, bjds, t0, per, rp, a, inc,
 
 parser = argparse.ArgumentParser(description="Extracts phase curve and transit information from light curves")
 parser.add_argument("config_file", help="Contains transit, eclipse, and phase curve parameters")
-parser.add_argument("start_bin", type=int)
-parser.add_argument("end_bin", type=int)
+parser.add_argument("start_wave", type=float)
+parser.add_argument("end_wave", type=float)
 parser.add_argument("-b", "--bin-size", type=int, default=16, help="Bin size to use on data")
 parser.add_argument("--burn-in-runs", type=int, default=1000, help="Number of burn in runs")
 parser.add_argument("--production-runs", type=int, default=1000, help="Number of production runs")
@@ -74,7 +74,7 @@ parser.add_argument("-o", "--output", type=str, default="chain", help="Directory
 
 args = parser.parse_args()
 
-bjds, fluxes, flux_errors, wavelengths = get_data_txt(args.start_bin, args.end_bin)
+bjds, fluxes, flux_errors, wavelengths = get_data_pickle(args.start_wave, args.end_wave, 0)
 
 bin_size = args.bin_size
 binned_fluxes = bin_data(fluxes, bin_size)
