@@ -5,7 +5,7 @@ DIR="$(dirname "${BASH_SOURCE[0]}")"
 for filename in "$@"
 do
     echo $filename
-    #python $DIR/calibrate.py $filename
+    python $DIR/calibrate.py $filename
     python $DIR/simple_extract.py rateints_$filename
 done
 
