@@ -15,6 +15,13 @@ def fix_outliers(data, badpix):
     for c in range(LEFT_MARGIN, data.shape[1]):
         rows = np.arange(data.shape[0])
         good = ~badpix[:,c]
+        if np.sum(good) == 0:
+            print("WARNING: entire col {} is bad, replacing by adjacent cols".format(c))
+            final[:,c] = (data[:,c-1] + data[:,c+1])/2
+            continue
+            #print(c, np.sum(good))
+            #pdb.set_trace()
+                        
         repaired = np.interp(rows, rows[good], data[:,c][good])
         final[:,c] = repaired
     return final
@@ -57,10 +64,11 @@ with fits.open(filename) as hdul:
         print("Processing integration", i)
 
         #Manually input bad pixels
-        hdul["DQ"].data[i,382,39] = 1
-        hdul["DQ"].data[i,382,58] = 1
+        #hdul["DQ"].data[i,382,39] = 1
+        #hdul["DQ"].data[i,382,58] = 1
         
-        hdul["SCI"].data[i] = fix_outliers(hdul["SCI"].data[i], hdul["DQ"].data[i] != 0) 
+        #hdul["SCI"].data[i] = fix_outliers(hdul["SCI"].data[i], hdul["DQ"].data[i] != 0)
+        #hdul["SCI"].data[i] = fix_outliers(hdul["SCI"].data[i], np.isnan(hdul["SCI"].data[i]))
         
         data = hdul["SCI"].data[i][EXTRACT_Y_MIN:EXTRACT_Y_MAX]
         err = hdul["ERR"].data[i][EXTRACT_Y_MIN:EXTRACT_Y_MAX]
