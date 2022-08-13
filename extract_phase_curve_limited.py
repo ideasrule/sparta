@@ -60,7 +60,7 @@ def correct_lc(wavelengths, fluxes, errors, bjds, y, t0, t_secondary, per, rp, a
 
     #All arguments, aside from the parameters, that will be passed to lnprob
     w = 2*np.pi/per
-    lnprob_args = (initial_batman_params, transit_model, eclipse_model, bjds, fluxes, errors, y, t0, extra_phase_terms)
+    lnprob_args = (initial_batman_params, transit_model, eclipse_model, bjds, fluxes, errors, y, t0, None if wavelengths[0] < 10 else 0.08, extra_phase_terms)
 
     #Plot initial
     #residuals = lnprob(initial_params, *lnprob_args, plot_result=True, return_residuals=True)
@@ -68,11 +68,16 @@ def correct_lc(wavelengths, fluxes, errors, bjds, y, t0, t_secondary, per, rp, a
     
     best_step, chain = run_emcee(lnprob, lnprob_args, initial_params, nwalkers, output_file_prefix, burn_in_runs, production_runs)
     best_lnprob, residuals = lnprob(best_step, *lnprob_args, plot_result=True, return_residuals=True, wavelength=np.mean(wavelengths))
+    print("Best lnprob", best_lnprob)
     chain = chain[int(len(chain)/2):]
 
     A = np.sqrt(chain[:,1]**2 + chain[:,2]**2)
     phi = np.arctan2(chain[:,2], chain[:,1]) * 180 / np.pi
     #phi[phi > 0] -= 360
+
+    #samples = np.array([phi, chain[:,5], chain[:,7], chain[:,8], chain[:,9]]).T
+    #fig = corner.corner(samples, labels=["phi", "slope", "Aramp", "tau", "cy"])
+    #plt.show()
     
     print_stats(A, "A")
     print_stats(phi, "phi")
@@ -81,12 +86,13 @@ def correct_lc(wavelengths, fluxes, errors, bjds, y, t0, t_secondary, per, rp, a
     print_stats(chain[:,2], "D1")
     print_stats(chain[:,3], "rp")
     print_stats(chain[:,4], "error")
-    print_stats(chain[:,5], "Fstar")
-    print_stats(chain[:,6], "slope")
+    print_stats(chain[:,5], "slope")
+    print_stats(chain[:,6], "Fstar")
     print_stats(chain[:,7], "Aramp")
     print_stats(chain[:,8], "tau")
+    print_stats(chain[:,9], "cy")
     plt.figure()
-    corner.corner(chain, range=[0.99] * chain.shape[1], labels=["Fp", "C1", "D1", "rp", "error", "Fstar", "slope", "Aramp", "tau", "cy"])
+    corner.corner(chain, range=[0.99] * chain.shape[1], labels=["Fp", "C1", "D1", "rp", "error", "slope", "Fstar", "Aramp", "tau", "cy"])
     plt.show()
     
     night_Fp = chain[:,0] - 2*chain[:,1]
@@ -101,6 +107,7 @@ def correct_lc(wavelengths, fluxes, errors, bjds, y, t0, t_secondary, per, rp, a
             f.write("{} {} {} ".format(np.median(var), np.median(var) - np.percentile(var, 16), np.percentile(var, 84) - np.median(var)))
         f.write("{}".format(best_lnprob))
         f.write("\n")
+    return chain
 
 parser = argparse.ArgumentParser(description="Extracts phase curve and transit information from light curves")
 parser.add_argument("config_file", help="Contains transit, eclipse, and phase curve parameters")
@@ -141,7 +148,9 @@ limb_dark_coeffs = estimate_limb_dark(np.mean(wavelengths))
 print("Found limb dark coeffs", limb_dark_coeffs)
 print("# points", len(binned_fluxes))
 
-correct_lc(wavelengths, binned_fluxes, binned_errors, binned_bjds, binned_y, float(items["t0"]), float(items["t_secondary"]), float(items["per"]),
+chain = correct_lc(wavelengths, binned_fluxes, binned_errors, binned_bjds, binned_y, float(items["t0"]), float(items["t_secondary"]), float(items["per"]),
            float(items["rp"]), float(items["a"]), float(items["inc"]), limb_dark_coeffs,
            float(items["fp"]), float(items["c1"]), float(items["d1"]), float(items["c2"]), float(items["d2"]),
            args.output, args.num_walkers, args.burn_in_runs, args.production_runs, args.extra_phase_terms)
+
+np.save("chain_{}_{}.npy".format(int(args.start_wave), int(args.end_wave)), chain)

@@ -100,6 +100,11 @@ binned_errors = np.sqrt(bin_data(flux_errors**2, bin_size) / bin_size) / factor
 binned_bjds = bin_data(bjds, bin_size)
 binned_y = bin_data(y, bin_size)
 
+plt.plot(binned_bjds, binned_fluxes)
+plt.figure()
+plt.plot(binned_bjds, binned_errors)
+plt.show()
+
 print("Num points", len(binned_fluxes))
 #get values from configuration file
 default_section_name = "DEFAULT"
