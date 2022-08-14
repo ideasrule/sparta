@@ -14,7 +14,7 @@ import corner
 
 def correct_lc(wavelengths, fluxes, errors, bjds, y, t0, per, rp, a, inc,
                limb_dark_coeffs, fp, C1, D1, C2, D2, output_file_prefix="chain",
-               nwalkers=100, burn_in_runs=100, production_runs=1000, extra_phase_terms=False):
+               nwalkers=100, burn_in_runs=100, production_runs=1000, extra_phase_terms=False, output_txt="white_light_result.txt"):
     print("Median is", np.median(fluxes))
     fluxes /= np.median(fluxes)
 
@@ -29,17 +29,13 @@ def correct_lc(wavelengths, fluxes, errors, bjds, y, t0, per, rp, a, inc,
     print("Error factor", error_factor)
     b = a*np.cos(inc*np.pi/180)
     if extra_phase_terms:
-        initial_params = np.array([0, 0, fp, C1, D1, C2, D2, rp, a, b, error_factor, 0, 1, 0, 1./24, 0])
+        initial_params = np.array([0, 0, fp, C1, D1, C2, D2, rp, a, b, error_factor, 1, 0, 1./24, 0])
     else:
-        initial_params = np.array([0, 0, fp, C1, D1, rp, a, b, error_factor, 0, 1, 0, 1./24, 0])
+        initial_params = np.array([0, 0, fp, C1, D1, rp, a, b, error_factor, 1, 0, 1./24, 0])
 
     #All arguments, aside from the parameters, that will be passed to lnprob
     w = 2*np.pi/per
-    lnprob_args = (initial_batman_params, transit_model, eclipse_model, bjds, fluxes, errors, y, t0, extra_phase_terms)
-
-    #Plot initial
-    #residuals = lnprob(initial_params, *lnprob_args, plot_result=True, return_residuals=True)
-    #plt.show()
+    lnprob_args = (initial_batman_params, transit_model, eclipse_model, bjds, fluxes, errors, y, t0, extra_phase_terms)  
     
     best_step, chain = run_emcee(lnprob, lnprob_args, initial_params, nwalkers, output_file_prefix, burn_in_runs, production_runs)
     print("Best step", best_step)
@@ -62,21 +58,27 @@ def correct_lc(wavelengths, fluxes, errors, bjds, y, t0, per, rp, a, inc,
     print_stats(chain[:,7], "b")
     print_stats(np.arccos(chain[:,7]/chain[:,6])*180/np.pi, "inc")
     print_stats(chain[:,8], "error")
-    print_stats(chain[:,9], "slope")
-    print_stats(chain[:,10], "Fstar")
-    print_stats(chain[:,11], "A")
-    print_stats(chain[:,12], "tau")
-    print_stats(chain[:,13], "c_y")
+    print_stats(chain[:,9], "Fstar")
+    print_stats(chain[:,10], "A")
+    print_stats(chain[:,11], "tau")
+    print_stats(chain[:,12], "c_y")
     plt.figure()
-    corner.corner(chain, range=[0.99] * chain.shape[1], labels=["t0", "eclipse", "Fp", "C1", "D1", "rp", "a_star", "b", "error", "slope", "Fstar", "A", "tau", "c_y"])
+    corner.corner(chain, range=[0.99] * chain.shape[1], labels=["t0", "eclipse", "Fp", "C1", "D1", "rp", "a_star", "b", "error", "Fstar", "A", "tau", "c_y"])
     plt.show()
 
-    with open("result.txt", "a") as f:
+    night_Fp = chain[:,0] - 2*chain[:,1]
+    
+    with open(output_txt, "w") as f:
+        f.write("#min_wavelength max_wavelength A_med A_lower_err A_upper_err phi_med phi_lower_err phi_upper_err Fp_med Fp_lower_err Fp_upper_err RpRs_med RpRs_lower_err RpRs_upper_err night_Fp_med night_Fp_lower_err night_Fp_upper_err lnprob\n")    
         f.write("{} {} ".format(wavelengths[-1], wavelengths[0]))
-        for var in (A, phi, chain[:,2], chain[:,5]):
+        for var in (A, phi, chain[:,2], chain[:,5], night_Fp):
             f.write("{} {} {} ".format(np.median(var), np.median(var) - np.percentile(var, 16), np.percentile(var, 84) - np.median(var)))
+        f.write("{}".format(best_lnprob))
         f.write("\n")
 
+    
+
+            
 parser = argparse.ArgumentParser(description="Extracts phase curve and transit information from light curves")
 parser.add_argument("config_file", help="Contains transit, eclipse, and phase curve parameters")
 parser.add_argument("start_wave", type=float)
@@ -100,10 +102,6 @@ binned_errors = np.sqrt(bin_data(flux_errors**2, bin_size) / bin_size) / factor
 binned_bjds = bin_data(bjds, bin_size)
 binned_y = bin_data(y, bin_size)
 
-plt.plot(binned_bjds, binned_fluxes)
-plt.figure()
-plt.plot(binned_bjds, binned_errors)
-plt.show()
 
 print("Num points", len(binned_fluxes))
 #get values from configuration file

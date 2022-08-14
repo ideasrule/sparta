@@ -8,7 +8,7 @@ from sklearn.neighbors import NearestNeighbors
 from astropy.stats import sigma_clipped_stats
 from astropy.stats import sigma_clip
 from scipy.stats import binned_statistic
-from scipy.ndimage import uniform_filter
+from scipy.ndimage import uniform_filter, median_filter
 from sklearn.decomposition import PCA
 import scipy.stats
 import glob
@@ -90,16 +90,16 @@ def get_data_pickle(min_wavelength, max_wavelength, trim_start=525, filename="da
     result = pickle.load(open(filename, "rb"))
     cond = np.logical_and(result["wavelengths"] >= min_wavelength/1000,
                           result["wavelengths"] < max_wavelength/1000)
-    
+      
     data = np.sum(result["data"][trim_start:, cond], axis=1)
     var = result["errors"]**2
     errors = np.sqrt(np.sum(var[trim_start:, cond], axis=1))
     median = np.median(data)
     data /= median
     errors /= median
-    y = result["y"][trim_start:] #- robust_polyfit(result["times"][trim_start:], result["y"][trim_start:], 1)
+    y = result["y"][trim_start:]
 
-    return result["times"][trim_start:], data, errors, result["wavelengths"][cond], y #, result["fl"][trim_start:] - np.mean(result["fl"][trim_start:]), result["fc"][trim_start:] - np.mean(result["fc"][trim_start:]), result["fr"][trim_start:] - np.mean(result["fr"][trim_start:])
+    return result["times"][trim_start:], data, errors, result["wavelengths"][cond], y
 
 
 def get_data_txt(start_bin, end_bin, trim_start=2000, filename="lightcurve.txt"):

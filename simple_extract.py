@@ -1,5 +1,7 @@
 from astropy.io import fits
 import sys
+import matplotlib
+matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import numpy as np
 from numpy.polynomial.chebyshev import chebval
@@ -18,9 +20,7 @@ def fix_outliers(data, badpix):
         if np.sum(good) == 0:
             print("WARNING: entire col {} is bad, replacing by adjacent cols".format(c))
             final[:,c] = (data[:,c-1] + data[:,c+1])/2
-            continue
-            #print(c, np.sum(good))
-            #pdb.set_trace()
+            continue           
                         
         repaired = np.interp(rows, rows[good], data[:,c][good])
         final[:,c] = repaired
@@ -29,9 +29,8 @@ def fix_outliers(data, badpix):
 def simple_extract(image, err):
     spectrum = np.sum(image, axis=1)
     variance = np.sum(err**2, axis=1)
-    #pdb.set_trace()
     fractions = np.sum(image, axis=0) / np.sum(spectrum)
-    return spectrum, variance, fractions[2], fractions[3], fractions[4]
+    return spectrum, variance
     
 def get_wavelengths():
     with fits.open(WCS_FILE) as hdul:
@@ -80,7 +79,7 @@ with fits.open(filename) as hdul:
         trace_loc = np.argmax(profile)
         s = np.s_[EXTRACT_Y_MIN:EXTRACT_Y_MAX, trace_loc - SUM_EXTRACT_WINDOW : trace_loc + SUM_EXTRACT_WINDOW + 1]
         
-        spectrum, variance, fl, fc, fr = simple_extract(
+        spectrum, variance = simple_extract(
             hdul["SCI"].data[i][s] - bkd[:, np.newaxis],
             hdul["ERR"].data[i][s]            
         )
@@ -92,9 +91,6 @@ with fits.open(filename) as hdul:
             fits.Column(name="ERROR", format="D", unit="Electrons/group", array=np.sqrt(variance)),
             fits.Column(name="BKD", format="D", unit="Electrons/group", array=bkd)
         ]))
-        hdulist[-1].header["fl"] = fl
-        hdulist[-1].header["fc"] = fc
-        hdulist[-1].header["fr"] = fr
 
         if i == 20:            
             spectra_filename = "spectra_{}_" + filename[:-4] + "png"
@@ -105,6 +101,5 @@ with fits.open(filename) as hdul:
             plt.savefig(spectra_filename.format(i))
 
     
-    output_hdul = fits.HDUList(hdulist)
-    
+    output_hdul = fits.HDUList(hdulist)    
     output_hdul.writeto("x1d_" + os.path.basename(filename), overwrite=True)

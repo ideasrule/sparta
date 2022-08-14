@@ -1,5 +1,6 @@
 #!/bin/bash
 
+rm result.txt lightcurves.txt
 for i in {5000..11800..500}
 do
     echo $i $(($i+500))

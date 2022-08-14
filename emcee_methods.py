@@ -35,6 +35,7 @@ def get_batman_params(t0, per, rp, a, inc, limb_dark_coeffs, \
 
 def get_planet_flux(eclipse_model, batman_params, t0, period, bjds, Fp, C1, D1,
                     C2=None, D2=None, t_secondary=None, pdb=False):
+    batman_params = copy.deepcopy(batman_params)
     if t_secondary is None:
         t_secondary = t0 + period/2.0
         
@@ -236,8 +237,9 @@ def lnprob_transit_limited(params, initial_batman_params, transit_model, bjds,
 
 #@profile    
 def lnprob(params, initial_batman_params, transit_model, eclipse_model, bjds,
-                           fluxes, errors, y, initial_t0, extra_phase_terms=False, plot_result=False, max_Fp=1,
-                           return_residuals=False):
+           fluxes, errors, y, initial_t0, 
+           extra_phase_terms=False, plot_result=False, max_Fp=1,
+           return_residuals=False, output_filename="white_lightcurve.txt"):
     
     #planet_sine and planet_cosine are sin(w*bjds) and cos(w*bjds); included so we don't have to compute them every iteration
     transit_offset = params[0]
@@ -251,38 +253,9 @@ def lnprob(params, initial_batman_params, transit_model, eclipse_model, bjds,
         end_phase_terms = 7
     else:
         end_phase_terms = 5
-    rp = params[end_phase_terms]
-    a_star = params[end_phase_terms + 1]
-    b = params[end_phase_terms + 2]
+
+    rp, a_star, b, error_factor, Fstar, A, tau, y_coeff = params[end_phase_terms:]
     inc = np.arccos(b/a_star) * 180/np.pi
-    
-    error_factor = params[end_phase_terms + 3]
-    slope = 0*params[end_phase_terms + 4]
-    Fstar = params[end_phase_terms + 5]
-    A = params[end_phase_terms + 6]
-    tau = params[end_phase_terms + 7]
-    y_coeff = params[end_phase_terms + 8]
-    
-    fluxes = np.copy(fluxes)
-    #fluxes[bjds < 59781.42] += step
-    #print("Num step", np.sum(bjds < 59781.42))
-
-    #Fix some parameters
-    #a_star = 4.447
-    #inc = 79.397
-    #b = 0.818248
-    #slope = 0
-    #a_star = 4.447
-    #b = 0.8523
-    #inc = 78.95
-    #transit_offset = 0
-    #eclipse_offset = 1.25147706e-03
-    #transit_offset = 0.00012
-    #eclipse_offset = 0.0012
-
-    #rp = 0.17296
-    #b = 0.826
-    #inc = 79.5
     
     batman_params = initial_batman_params
     batman_params.t0 = initial_t0 + transit_offset
@@ -291,12 +264,6 @@ def lnprob(params, initial_batman_params, transit_model, eclipse_model, bjds,
     batman_params.a = a_star
     batman_params.inc = inc
 
-    #Delete this
-    #batman_params.t0 = 59781.518748
-    #batman_params.t_secondary = 59782.309863
-    #batman_params.a = 15.1
-    #batman_params.inc = 89.077
-    
     #now account for prior
     if (np.abs(params[0])) >= batman_params.per/4.0:
         return -np.inf
@@ -317,7 +284,7 @@ def lnprob(params, initial_batman_params, transit_model, eclipse_model, bjds,
     scaled_errors = error_factor * errors
 
     delta_t = bjds - bjds[0]
-    systematics = Fstar * (1 + slope*delta_t + A*np.exp(-delta_t/tau) + y_coeff * y)
+    systematics = Fstar * (1 + A*np.exp(-delta_t/tau) + y_coeff * y)
     
     if extra_phase_terms:
         Lplanet = get_planet_flux(eclipse_model, batman_params, batman_params.t0, batman_params.per, bjds, Fp, C1, D1, C2, D2, t_secondary=batman_params.t_secondary)
@@ -333,8 +300,14 @@ def lnprob(params, initial_batman_params, transit_model, eclipse_model, bjds,
 
     if plot_result:
         print("lnprob of plotted", result)
+        with open(output_filename, "w") as f:
+            f.write("#time flux uncertainty systematics_model astro_model total_model residuals\n")        
+            for i in range(len(residuals)):
+                f.write("{} {} {} {} {}\n".format(bjds[i], fluxes[i] / Fstar, scaled_errors[i] / Fstar,
+                                                  systematics[i] / Fstar, astro[i] / Fstar, model[i] / Fstar,
+                                                  residuals[i] / Fstar))
+        
         binsize = 1
-        #residuals -= np.mean(residuals)
         phases = (bjds-batman_params.t0)/batman_params.per
         phases -= np.round(np.median(phases))
 
@@ -350,10 +323,7 @@ def lnprob(params, initial_batman_params, transit_model, eclipse_model, bjds,
               
     if np.random.randint(0, 1000) == 0:
         print(result/len(residuals), error_factor, Fp, np.median(np.abs(residuals)), rp, a_star, inc, b)
-    #if result/len(residuals) > 4.7:
-    #    Lplanet = get_planet_flux(eclipse_model, batman_params, batman_params.t0, batman_params.per, bjds, Fp, C1, D1, t_secondary=batman_params.t_secondary, pdb=True)
-        
-    #print(result/len(residuals), Fp, np.median(np.abs(residuals)), rp, a_star, inc, b)
+   
     if return_residuals:
         return residuals    
 
@@ -376,7 +346,6 @@ def lnprob_limited(params, batman_params, transit_model, eclipse_model, bjds,
         end_phase_terms = 3
     rp = params[end_phase_terms]
     error_factor = params[end_phase_terms + 1]
-    slope = 0*params[end_phase_terms + 2]
     Fstar = params[end_phase_terms + 3]
     A = params[end_phase_terms + 4]
     tau = params[end_phase_terms + 5]
@@ -399,7 +368,7 @@ def lnprob_limited(params, batman_params, transit_model, eclipse_model, bjds,
     
     batman_params.rp = rp
     delta_t = bjds - bjds[0]
-    systematics = Fstar * (1 + slope*delta_t + A*np.exp(-delta_t/tau) + y_coeff * y)
+    systematics = Fstar * (1 + A*np.exp(-delta_t/tau) + y_coeff * y)
     if extra_phase_terms:
         #print("Using extra phase terms")
         Lplanet = get_planet_flux(eclipse_model, batman_params, batman_params.t0, batman_params.per, bjds, Fp, C1, D1, C2, D2, t_secondary=batman_params.t_secondary)

@@ -1,3 +1,5 @@
+import os
+
 LEFT_MARGIN = 10
 RIGHT_MARGIN_BKD = 5
 BAD_GRPS = 0
@@ -15,7 +17,7 @@ BKD_WIDTH = 15
 #NONLINEAR_COEFFS = [-4.99787404e-07, 1.45159521e-10, -8.58359417e-16]
 NONLINEAR_COEFFS = [1.8901927e-6, 6.1071504e-12, 3.082711e-16]
 
-REF_DIR = "/home/stanley/jwst_refs/"
+REF_DIR = os.path.expanduser("~/jwst_refs/")
 NONLINEAR_FILE = REF_DIR + "jwst_miri_linearity_0032.fits"
 DARK_FILE = REF_DIR + "jwst_miri_dark_0084.fits"
 FLAT_FILE = REF_DIR + "jwst_miri_flat_0789.fits"

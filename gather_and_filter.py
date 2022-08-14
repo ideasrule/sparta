@@ -14,19 +14,14 @@ def read_data(filenames):
     errors = None
     bkd = None
     times = []
-    fl = []
-    fc = []
-    fr = []
+    section_edges = []
+    
     for filename in filenames:
         with astropy.io.fits.open(filename) as hdul:
             wavelengths = hdul[2].data["WAVELENGTH"]
-            #pdb.set_trace()
             lcs = np.array([hdul[i].data["FLUX"] for i in range(2, len(hdul))])
             lc_errors = np.array([hdul[i].data["ERROR"] for i in range(2, len(hdul))])
             curr_bkd = np.array([hdul[i].data["BKD"] for i in range(2, len(hdul))])
-            #fl += [hdul[i].header["fl"] for i in range(2, len(hdul))]
-            #fc += [hdul[i].header["fc"] for i in range(2, len(hdul))]
-            #fr += [hdul[i].header["fr"] for i in range(2, len(hdul))]
             if data is None:
                 data = lcs
                 errors = lc_errors
@@ -44,10 +39,11 @@ def read_data(filenames):
                 np.linspace(exp_start + int_time * (hdul[0].header["INTSTART"] - 1),
                             exp_start + int_time * (hdul[0].header["INTEND"] - 1),
                             len(lcs)))
+            section_edges.append(len(times))
             assert(hdul[0].header["INTEND"] - hdul[0].header["INTSTART"] + 1 == len(lcs))
             
     times = np.array(times)        
-    return data, errors, bkd, times, wavelengths #, np.array(fl), np.array(fc), np.array(fr)
+    return data, errors, bkd, times, wavelengths, np.array(section_edges)
 
 def repair_rows(data, sigma=4):
     repaired = np.copy(data)
@@ -90,7 +86,7 @@ def reject_rows(data, errors, bkd, times, x, y, sigma=4, num_discard_beginning=1
     plt.ylabel("Flux (bad rows excluded)")
     plt.figure()
     plt.plot(np.sum(data[~bad_rows][:,33:55], axis=1))
-    return data[~bad_rows], errors[~bad_rows], bkd[~bad_rows], times[~bad_rows], x[~bad_rows], y[~bad_rows]#, fl[~bad_rows], fc[~bad_rows], fr[~bad_rows]
+    return data[~bad_rows], errors[~bad_rows], bkd[~bad_rows], times[~bad_rows], x[~bad_rows], y[~bad_rows]
 
 def reject_cols(data, errors, wavelengths, threshold=1.2):
     is_bad = np.zeros(data.shape[1], dtype=bool)
@@ -110,22 +106,24 @@ def reject_cols(data, errors, wavelengths, threshold=1.2):
 
 
     
-data, errors, bkd, times, wavelengths = read_data(sys.argv[1:])
+data, errors, bkd, times, wavelengths, section_edges = read_data(sys.argv[1:])
 output = {"uncut_wavelengths": wavelengths,
           "uncut_times": times,
           "uncut_data": data,
           "uncut_errors": errors,
-          "uncut_bkd": bkd}
+          "uncut_bkd": bkd,
+          "uncut_section_edges": section_edges
+}
 
 print(wavelengths[244:250])
 print(wavelengths[250:])
 plt.figure()
 plt.imshow(data / np.mean(data, axis=0), aspect='auto', vmin=0.995, vmax=1.005)
-for i in range(50):
-    plt.axhline(472*i, color='k')
+for e in section_edges:
+    plt.axhline(e, color='k')
+ 
 plt.xlabel("Wavelength")
 plt.ylabel("Time")
-
 
 y, x, A = np.loadtxt("positions.txt", usecols=(2,3,4), unpack=True)
 output.update({"uncut_y": y,
