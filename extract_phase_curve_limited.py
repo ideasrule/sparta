@@ -54,9 +54,9 @@ def correct_lc(wavelengths, fluxes, errors, bjds, y, t0, t_secondary, per, rp, a
     error_factor = 1.6
     print("Error factor", error_factor)
     if extra_phase_terms:
-        initial_params = np.array([fp, C1, D1, C2, D2, rp, error_factor, 0, 1, 0, 0.1, 0])
+        initial_params = np.array([fp, C1, D1, C2, D2, rp, error_factor, 1, 0, 0.1, 0])
     else:
-        initial_params = np.array([fp, C1, D1, rp, error_factor, 0, 1, 0, 0.1, 0])
+        initial_params = np.array([fp, C1, D1, rp, error_factor, 1, 0, 0.1, 0])
 
     #All arguments, aside from the parameters, that will be passed to lnprob
     w = 2*np.pi/per
@@ -86,11 +86,10 @@ def correct_lc(wavelengths, fluxes, errors, bjds, y, t0, t_secondary, per, rp, a
     print_stats(chain[:,2], "D1")
     print_stats(chain[:,3], "rp")
     print_stats(chain[:,4], "error")
-    print_stats(chain[:,5], "slope")
-    print_stats(chain[:,6], "Fstar")
-    print_stats(chain[:,7], "Aramp")
-    print_stats(chain[:,8], "tau")
-    print_stats(chain[:,9], "cy")
+    print_stats(chain[:,5], "Fstar")
+    print_stats(chain[:,6], "Aramp")
+    print_stats(chain[:,7], "tau")
+    print_stats(chain[:,8], "cy")
     plt.figure()
     corner.corner(chain, range=[0.99] * chain.shape[1], labels=["Fp", "C1", "D1", "rp", "error", "slope", "Fstar", "Aramp", "tau", "cy"])
     plt.show()

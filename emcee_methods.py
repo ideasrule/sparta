@@ -325,7 +325,7 @@ def lnprob(params, initial_batman_params, transit_model, eclipse_model, bjds,
         print(result/len(residuals), error_factor, Fp, np.median(np.abs(residuals)), rp, a_star, inc, b)
    
     if return_residuals:
-        return residuals    
+        return result, residuals    
 
     if np.isnan(result):
         print("result")
@@ -344,12 +344,7 @@ def lnprob_limited(params, batman_params, transit_model, eclipse_model, bjds,
         end_phase_terms = 5
     else:
         end_phase_terms = 3
-    rp = params[end_phase_terms]
-    error_factor = params[end_phase_terms + 1]
-    Fstar = params[end_phase_terms + 3]
-    A = params[end_phase_terms + 4]
-    tau = params[end_phase_terms + 5]
-    y_coeff = params[end_phase_terms + 6]
+    rp, error_factor, Fstar, A, tau, y_coeff = params[end_phase_terms:]
 
     if Fstar <= 0:
         return -np.inf
