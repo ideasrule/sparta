@@ -9,7 +9,7 @@ transit_end = 11302
 seg5_begin = 10528
 seg6_begin = 11000
 
-def write_pre_transit_segment(input_filename="old_uncalibrated/jw01803001001_04103_00003-seg005_mirimage_uncal.fits", output_filename="jw01803001001_04103_0003-seg005a_mirimage_uncal.fits"):
+def write_pre_transit_segment(input_filename="old_uncalibrated/jw01803001001_04103_00003-seg005_mirimage_uncal.fits", output_filename="jw01803001001_04103_00003-seg005a_mirimage_uncal.fits"):
     seg1 = astropy.io.fits.open(input_filename)
     seg1_header = dict(seg1[0].header)
     times = np.linspace(seg1[0].header["BSTRTIME"], seg1[0].header["BENDTIME"], seg1[1].data.shape[0])
@@ -39,7 +39,7 @@ def write_pre_transit_segment(input_filename="old_uncalibrated/jw01803001001_041
     seg1.close()
     return transit_data, transit_intstart, seg1_header
 
-def write_post_transit_segment(input_filename="old_uncalibrated/jw01803001001_04103_00003-seg006_mirimage_uncal.fits", output_filename="jw01803001001_04103_0003-seg005c_mirimage_uncal.fits"):
+def write_post_transit_segment(input_filename="old_uncalibrated/jw01803001001_04103_00003-seg006_mirimage_uncal.fits", output_filename="jw01803001001_04103_00003-seg005c_mirimage_uncal.fits"):
     seg3 = astropy.io.fits.open(input_filename)
     times = np.linspace(seg3[0].header["BSTRTIME"], seg3[0].header["BENDTIME"], seg3[1].data.shape[0])
     cutoff = transit_end - seg6_begin
@@ -66,7 +66,7 @@ def write_post_transit_segment(input_filename="old_uncalibrated/jw01803001001_04
     seg3.close()
     return transit_data2, transit_intend
 
-def write_transit_segment(transit_data, transit_intstart, transit_intend, seg1_header, output_filename="jw01803001001_04103_0003-seg005b_mirimage_uncal.fits"):
+def write_transit_segment(transit_data, transit_intstart, transit_intend, seg1_header, output_filename="jw01803001001_04103_00003-seg005b_mirimage_uncal.fits"):
     header_hdu = astropy.io.fits.PrimaryHDU()
     header_hdu.header["NGROUPS"] = transit_data.shape[1]
     header_hdu.header["NINTS"] = seg1_header["NINTS"]
