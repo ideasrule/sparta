@@ -303,9 +303,9 @@ def lnprob(params, initial_batman_params, transit_model, eclipse_model, bjds,
         with open(output_filename, "w") as f:
             f.write("#time flux uncertainty systematics_model astro_model total_model residuals\n")        
             for i in range(len(residuals)):
-                f.write("{} {} {} {} {}\n".format(bjds[i], fluxes[i] / Fstar, scaled_errors[i] / Fstar,
-                                                  systematics[i] / Fstar, astro[i] / Fstar, model[i] / Fstar,
-                                                  residuals[i] / Fstar))
+                f.write("{} {} {} {} {} {} {}\n".format(bjds[i], fluxes[i] / Fstar, scaled_errors[i] / Fstar,
+                                                        systematics[i] / Fstar, astro[i] / Fstar, model[i] / Fstar,
+                                                        residuals[i] / Fstar))
         
         binsize = 1
         phases = (bjds-batman_params.t0)/batman_params.per
