@@ -66,10 +66,11 @@ def correct_lc(wavelengths, fluxes, errors, bjds, y, t0, t_secondary, per, rp, a
     #residuals = lnprob(initial_params, *lnprob_args, plot_result=True, return_residuals=True)
     #plt.show()
     
-    best_step, chain = run_emcee(lnprob, lnprob_args, initial_params, nwalkers, output_file_prefix, burn_in_runs, production_runs)
+    best_step, chain, lnprobs = run_emcee(lnprob, lnprob_args, initial_params, nwalkers, output_file_prefix, burn_in_runs, production_runs)
     best_lnprob, residuals = lnprob(best_step, *lnprob_args, plot_result=True, return_residuals=True, wavelength=np.mean(wavelengths))
     print("Best lnprob", best_lnprob)
     chain = chain[int(len(chain)/2):]
+    lnprobs = lnprobs[int(len(chain)/2):]
 
     A = np.sqrt(chain[:,1]**2 + chain[:,2]**2)
     phi = np.arctan2(chain[:,2], chain[:,1]) * 180 / np.pi
@@ -106,7 +107,7 @@ def correct_lc(wavelengths, fluxes, errors, bjds, y, t0, t_secondary, per, rp, a
             f.write("{} {} {} ".format(np.median(var), np.median(var) - np.percentile(var, 16), np.percentile(var, 84) - np.median(var)))
         f.write("{}".format(best_lnprob))
         f.write("\n")
-    return chain
+    return chain, lnprobs
 
 parser = argparse.ArgumentParser(description="Extracts phase curve and transit information from light curves")
 parser.add_argument("config_file", help="Contains transit, eclipse, and phase curve parameters")
@@ -147,9 +148,10 @@ limb_dark_coeffs = estimate_limb_dark(np.mean(wavelengths))
 print("Found limb dark coeffs", limb_dark_coeffs)
 print("# points", len(binned_fluxes))
 
-chain = correct_lc(wavelengths, binned_fluxes, binned_errors, binned_bjds, binned_y, float(items["t0"]), float(items["t_secondary"]), float(items["per"]),
+chain, lnprobs = correct_lc(wavelengths, binned_fluxes, binned_errors, binned_bjds, binned_y, float(items["t0"]), float(items["t_secondary"]), float(items["per"]),
            float(items["rp"]), float(items["a"]), float(items["inc"]), limb_dark_coeffs,
            float(items["fp"]), float(items["c1"]), float(items["d1"]), float(items["c2"]), float(items["d2"]),
            args.output, args.num_walkers, args.burn_in_runs, args.production_runs, args.extra_phase_terms)
 
 np.save("chain_{}_{}.npy".format(int(args.start_wave), int(args.end_wave)), chain)
+np.save("lnprobs_{}_{}.npy".format(int(args.start_wave), int(args.end_wave)), lnprobs)

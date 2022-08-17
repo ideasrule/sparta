@@ -1,7 +1,7 @@
 import numpy as np
 import sys
 import matplotlib
-matplotlib.use("Agg")
+#matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import batman
 from algorithms import reject_beginning, bin_data, get_mad, \
@@ -39,10 +39,11 @@ def correct_lc(wavelengths, fluxes, errors, bjds, y, t0, per, rp, a, inc,
     w = 2*np.pi/per
     lnprob_args = (initial_batman_params, transit_model, eclipse_model, bjds, fluxes, errors, y, t0, extra_phase_terms)  
     
-    best_step, chain = run_emcee(lnprob, lnprob_args, initial_params, nwalkers, output_file_prefix, burn_in_runs, production_runs)
+    best_step, chain, lnprobs = run_emcee(lnprob, lnprob_args, initial_params, nwalkers, output_file_prefix, burn_in_runs, production_runs)
     print("Best step", best_step)
     best_lnprob, residuals = lnprob(best_step, *lnprob_args, plot_result=True, return_residuals=True)
     chain = chain[int(len(chain)/2):]
+    lnprobs = lnprobs[int(len(chain)/2):]
 
     A = np.sqrt(chain[:,3]**2 + chain[:,4]**2)
     phi = np.arctan2(chain[:,4], chain[:,3]) * 180 / np.pi

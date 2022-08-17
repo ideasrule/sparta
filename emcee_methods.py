@@ -304,7 +304,7 @@ def lnprob(params, initial_batman_params, transit_model, eclipse_model, bjds,
             f.write("#time flux uncertainty systematics_model astro_model total_model residuals\n")        
             for i in range(len(residuals)):
                 f.write("{} {} {} {} {} {} {}\n".format(bjds[i], fluxes[i] / Fstar, scaled_errors[i] / Fstar,
-                                                        systematics[i] / Fstar, astro[i] / Fstar, model[i] / Fstar,
+                                                        systematics[i] / Fstar, astro[i], model[i] / Fstar,
                                                         residuals[i] / Fstar))
         
         binsize = 1
@@ -400,8 +400,8 @@ def lnprob_limited(params, batman_params, transit_model, eclipse_model, bjds,
         
         with open(output_filename, "a") as f:
             for i in range(len(residuals)):
-                f.write("{} {} {} {} {} {}\n".format(wavelength, bjds[i], fluxes[i] / Fstar, scaled_errors[i] / Fstar,
-                                                     systematics[i] / Fstar, astro[i] / Fstar, model[i] / Fstar,
+                f.write("{} {} {} {} {} {} {} {}\n".format(wavelength, bjds[i], fluxes[i] / Fstar, scaled_errors[i] / Fstar,
+                                                     systematics[i] / Fstar, astro[i], model[i] / Fstar,
                                                      residuals[i] / Fstar))
 
                 
@@ -507,5 +507,5 @@ def run_emcee(lnprob, lnprob_args, initial_params, nwalkers, output_dir, burn_in
     print("Starting production run")
 
     best_step = run_sampler_return_best(sampler, production_runs, output_dir, "production", latest_positions)
-    return best_step, sampler.flatchain
+    return best_step, sampler.flatchain, sampler.flatlnprobability
     
