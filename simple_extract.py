@@ -92,6 +92,6 @@ for filename in sys.argv[1:]:
                 plt.plot(variance * N**2, label="Variance")
                 plt.savefig(spectra_filename.format(i))
     
-            output_hdul = fits.HDUList(hdulist)    
-            output_hdul.writeto("x1d_" + os.path.basename(filename), overwrite=True)
+        output_hdul = fits.HDUList(hdulist)
+        output_hdul.writeto("x1d_" + os.path.basename(filename), overwrite=True)
     
