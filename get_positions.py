@@ -21,7 +21,8 @@ def chi_sqr(params, image, error, template, left=26, right=46, top=10, bottom=-1
     interpolator = RectBivariateSpline(ys, xs, template)
     shifted_template = A * interpolator(ys + delta_y, xs + delta_x)
     residuals = image - shifted_template
-    return np.sum(residuals[top:bottom, left:right]**2)
+    zs = residuals / error
+    return np.sum(zs[top:bottom, left:right]**2)
 
     
 #chi_sqr([0.1, 20], data[0], template)
