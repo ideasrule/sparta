@@ -11,6 +11,7 @@ import errno
 import os.path
 import pdb
 from scipy.ndimage import uniform_filter
+import pywt
 
 def get_batman_params(t0, per, rp, a, inc, limb_dark_coeffs, \
                       t_secondary=None, w=0, ecc=0):
@@ -254,7 +255,7 @@ def lnprob(params, initial_batman_params, transit_model, eclipse_model, bjds,
     else:
         end_phase_terms = 5
 
-    rp, a_star, b, error_factor, Fstar, A, tau, y_coeff = params[end_phase_terms:]
+    rp, a_star, b, error_factor, Fstar, A, tau, y_coeff, m = params[end_phase_terms:]
     inc = np.arccos(b/a_star) * 180/np.pi
     
     batman_params = initial_batman_params
@@ -284,7 +285,7 @@ def lnprob(params, initial_batman_params, transit_model, eclipse_model, bjds,
     scaled_errors = error_factor * errors
 
     delta_t = bjds - bjds[0]
-    systematics = Fstar * (1 + A*np.exp(-delta_t/tau) + y_coeff * y)
+    systematics = Fstar * (1 + A*np.exp(-delta_t/tau) + y_coeff * y + m * (bjds - np.mean(bjds)))
     
     if extra_phase_terms:
         Lplanet = get_planet_flux(eclipse_model, batman_params, batman_params.t0, batman_params.per, bjds, Fp, C1, D1, C2, D2, t_secondary=batman_params.t_secondary)
@@ -295,7 +296,12 @@ def lnprob(params, initial_batman_params, transit_model, eclipse_model, bjds,
     astro = transit_model.light_curve(batman_params) + Lplanet    
     model = systematics * astro
 
+    phases = (bjds - initial_t0) / batman_params.per
+    phases -= np.round(np.median(phases))
+    scaled_errors[np.logical_and(phases > -0.06, phases < -0.011)] = 10
+    
     residuals = fluxes - model
+    residuals[np.logical_and(phases > -0.06, phases < -0.011)] = 0
     result = -0.5*(np.sum(residuals**2/scaled_errors**2 - np.log(1.0/scaled_errors**2)))
 
     if plot_result:
@@ -331,6 +337,40 @@ def lnprob(params, initial_batman_params, transit_model, eclipse_model, bjds,
         print("result")
     return result
 
+def norm_lnlike(residuals, sigma_sqr):
+    return -0.5 * np.sum(residuals**2 / sigma_sqr + np.log(2 * np.pi * sigma_sqr))
+
+def wavelet_lnlike(residuals, sigma_w, sigma_r, gamma=1):
+    if np.log2(len(residuals)).is_integer():                                                                                                                                                            
+        N = len(residuals)                                                                                                                                                                                 
+        padded_residuals = np.copy(residuals)                                                                                                                                                              
+    else:                                                                                                                                                                                                  
+        power = np.ceil(np.log2(len(residuals)))                                                                                                                                                           
+        N = int(2**power)                                                                                                                                                                                  
+        padded_residuals = np.zeros(N)                                                                                                                                                                     
+        padded_residuals[0:len(residuals)] = residuals                                                                                                                                                     
+
+    assert(np.log2(N).is_integer())
+    level = int(np.log2(N / 2))
+    result = pywt.wavedec(padded_residuals, 'db2', mode='periodization', level=level)
+    cA = result[0]
+    cDs = result[1:]
+
+    if gamma == 1:
+        g_gamma = 1.0 / (2 * np.log(2))
+    else:
+        g_gamma = 1.0 / (2**(1-gamma) - 1)
+
+    sigma_cA_sqr = sigma_r**2 * 2**(-gamma) * g_gamma + sigma_w**2
+    lnlike = norm_lnlike(cA, sigma_cA_sqr)
+    for m in range(1, level + 1):
+        sigma_cD_sqr = sigma_r**2 * 2**(-gamma*m) + sigma_w**2
+        lnlike += norm_lnlike(cDs[m-1], sigma_cD_sqr)
+        
+    return lnlike
+
+
+
 def lnprob_limited(params, batman_params, transit_model, eclipse_model, bjds,
                            fluxes, errors, y, initial_t0, fix_tau, extra_phase_terms=False, plot_result=False, max_Fp=1,
                            return_residuals=False, wavelength=None, output_filename="lightcurves.txt"):
@@ -344,8 +384,8 @@ def lnprob_limited(params, batman_params, transit_model, eclipse_model, bjds,
         end_phase_terms = 5
     else:
         end_phase_terms = 3
-    rp, error_factor, Fstar, A, tau, y_coeff = params[end_phase_terms:]
-
+    rp, error_factor, Fstar, A, tau, y_coeff, m = params[end_phase_terms:]
+    #m *= 0
     if Fstar <= 0:
         return -np.inf
 
@@ -363,7 +403,7 @@ def lnprob_limited(params, batman_params, transit_model, eclipse_model, bjds,
     
     batman_params.rp = rp
     delta_t = bjds - bjds[0]
-    systematics = Fstar * (1 + A*np.exp(-delta_t/tau) + y_coeff * y)
+    systematics = Fstar * (1 + A*np.exp(-delta_t/tau) + y_coeff * y + m * (bjds - np.mean(bjds)))
     if extra_phase_terms:
         #print("Using extra phase terms")
         Lplanet = get_planet_flux(eclipse_model, batman_params, batman_params.t0, batman_params.per, bjds, Fp, C1, D1, C2, D2, t_secondary=batman_params.t_secondary)
@@ -371,8 +411,8 @@ def lnprob_limited(params, batman_params, transit_model, eclipse_model, bjds,
         Lplanet = get_planet_flux(eclipse_model, batman_params, batman_params.t0, batman_params.per, bjds, Fp, C1, D1, t_secondary=batman_params.t_secondary)
 
     if np.min(Lplanet) < 0: return -np.inf
-
-    astro = transit_model.light_curve(batman_params) + Lplanet    
+    
+    astro = transit_model.light_curve(batman_params) + Lplanet
     model = systematics * astro
     residuals = fluxes - model
     scaled_errors = errors * error_factor
@@ -389,7 +429,10 @@ def lnprob_limited(params, batman_params, transit_model, eclipse_model, bjds,
     #scaled_errors[np.abs(phases) < 0.06] = 10
     #scaled_errors[np.logical_and(phases > 0.09, phases < 0.15)] = 10
     #print("Excluded {} points".format(np.sum(np.abs(np.abs(phases) - 0.011) < 0.002)))
-    
+
+    residuals[np.abs(np.abs(phases) - 0.011) < 0.002] = 0
+    residuals[np.logical_and(phases > -0.06, phases < -0.011)] = 0
+    #result = wavelet_lnlike(residuals, np.median(errors), error_factor*np.median(errors))
     result = -0.5*(np.sum(residuals**2/scaled_errors**2 - np.log(1.0/scaled_errors**2)))
 
     if plot_result:
@@ -482,13 +525,9 @@ def run_sampler_return_best(sampler, total_runs, output_dir, output_prefix, init
             best_lnprob = sampler.flatlnprobability[index]
             best_step = sampler.flatchain[index]
             
-        chain_name = os.path.join(output_dir, output_prefix + str(chunk_counter) + "_chain.npy")
-        lnprob_name = os.path.join(output_dir, output_prefix + str(chunk_counter) + "_lnprob.npy")
-        np.save(chain_name, sampler.flatchain)
-        np.save(lnprob_name, sampler.flatlnprobability)
         print("Burn in acceptance fraction for chunk {0}: {1}".format(chunk_counter, np.median(sampler.acceptance_fraction)))
         chunk_counter += 1
-        
+
     return best_step
 
 def run_emcee(lnprob, lnprob_args, initial_params, nwalkers, output_dir, burn_in_runs, production_runs):

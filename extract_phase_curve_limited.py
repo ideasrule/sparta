@@ -18,6 +18,7 @@ import corner
 import copy
 import os.path
 import pdb
+from scipy.ndimage import uniform_filter
 
 def reject_outliers(data, errors, times, y, sigma=4):
     detrended = data - median_filter(data, int(len(data) / 100))
@@ -51,12 +52,16 @@ def correct_lc(wavelengths, fluxes, errors, bjds, y, t0, t_secondary, per, rp, a
     transit_model = batman.TransitModel(batman_params, bjds)
     eclipse_model = batman.TransitModel(batman_params, bjds, transittype='secondary')
 
-    error_factor = 1.6
+    error_factor = 1.3
     print("Error factor", error_factor)
     if extra_phase_terms:
-        initial_params = np.array([fp, C1, D1, C2, D2, rp, error_factor, 1, 0, 0.1, 0])
+        initial_params = np.array([fp, C1, D1, C2, D2, rp, error_factor, 1, 0, 0.1, 0, 0])
+        labels = ["Fp", "C1", "D1", "C2", "D2", "rp", "error", "Fstar", "Aramp", "tau", "cy", "m"]
+        rp_index = 5
     else:
-        initial_params = np.array([fp, C1, D1, rp, error_factor, 1, 0, 0.1, 0])
+        initial_params = np.array([fp, C1, D1, rp, error_factor, 1, 0, 0.1, 0, 0])
+        labels = ["Fp", "C1", "D1", "rp", "error", "Fstar", "Aramp", "tau", "cy", "m"]
+        rp_index = 3
 
     #All arguments, aside from the parameters, that will be passed to lnprob
     w = 2*np.pi/per
@@ -69,8 +74,9 @@ def correct_lc(wavelengths, fluxes, errors, bjds, y, t0, t_secondary, per, rp, a
     best_step, chain, lnprobs = run_emcee(lnprob, lnprob_args, initial_params, nwalkers, output_file_prefix, burn_in_runs, production_runs)
     best_lnprob, residuals = lnprob(best_step, *lnprob_args, plot_result=True, return_residuals=True, wavelength=np.mean(wavelengths))
     print("Best lnprob", best_lnprob)
-    chain = chain[int(len(chain)/2):]
-    lnprobs = lnprobs[int(len(chain)/2):]
+    length = len(chain)
+    chain = chain[int(length/2):]
+    lnprobs = lnprobs[int(length/2):]
 
     A = np.sqrt(chain[:,1]**2 + chain[:,2]**2)
     phi = np.arctan2(chain[:,2], chain[:,1]) * 180 / np.pi
@@ -79,20 +85,15 @@ def correct_lc(wavelengths, fluxes, errors, bjds, y, t0, t_secondary, per, rp, a
     #samples = np.array([phi, chain[:,5], chain[:,7], chain[:,8], chain[:,9]]).T
     #fig = corner.corner(samples, labels=["phi", "slope", "Aramp", "tau", "cy"])
     #plt.show()
+
     
     print_stats(A, "A")
     print_stats(phi, "phi")
-    print_stats(chain[:,0], "Fp")
-    print_stats(chain[:,1], "C1")
-    print_stats(chain[:,2], "D1")
-    print_stats(chain[:,3], "rp")
-    print_stats(chain[:,4], "error")
-    print_stats(chain[:,5], "Fstar")
-    print_stats(chain[:,6], "Aramp")
-    print_stats(chain[:,7], "tau")
-    print_stats(chain[:,8], "cy")
+    for i in range(chain.shape[1]):
+        print_stats(chain[:,i], labels[i])
+
     plt.figure()
-    corner.corner(chain, range=[0.99] * chain.shape[1], labels=["Fp", "C1", "D1", "rp", "error", "slope", "Fstar", "Aramp", "tau", "cy"])
+    corner.corner(chain, range=[0.99] * chain.shape[1], labels=labels)
     plt.show()
     
     night_Fp = chain[:,0] - 2*chain[:,1]
@@ -103,7 +104,7 @@ def correct_lc(wavelengths, fluxes, errors, bjds, y, t0, t_secondary, per, rp, a
     
     with open(output_txt, "a") as f:
         f.write("{} {} ".format(wavelengths[-1], wavelengths[0]))
-        for var in (A, phi, chain[:,0], chain[:,3], night_Fp):
+        for var in (A, phi, chain[:,0], chain[:,rp_index], night_Fp):
             f.write("{} {} {} ".format(np.median(var), np.median(var) - np.percentile(var, 16), np.percentile(var, 84) - np.median(var)))
         f.write("{}".format(best_lnprob))
         f.write("\n")
@@ -138,6 +139,10 @@ binned_bjds = bin_data(bjds, bin_size)
 binned_y = bin_data(y, bin_size)
 
 binned_fluxes, binned_errors, binned_bjds, binned_y = reject_outliers(binned_fluxes, binned_errors, binned_bjds, binned_y)
+delta_t = binned_bjds - np.median(binned_bjds)
+coeffs = np.polyfit(delta_t, binned_y, 1)
+smoothed_binned_y = np.polyval(coeffs, delta_t)
+
 
 #get values from configuration file
 default_section_name = "DEFAULT"
@@ -148,7 +153,7 @@ limb_dark_coeffs = estimate_limb_dark(np.mean(wavelengths))
 print("Found limb dark coeffs", limb_dark_coeffs)
 print("# points", len(binned_fluxes))
 
-chain, lnprobs = correct_lc(wavelengths, binned_fluxes, binned_errors, binned_bjds, binned_y, float(items["t0"]), float(items["t_secondary"]), float(items["per"]),
+chain, lnprobs = correct_lc(wavelengths, binned_fluxes, binned_errors, binned_bjds, binned_y - smoothed_binned_y, float(items["t0"]), float(items["t_secondary"]), float(items["per"]),
            float(items["rp"]), float(items["a"]), float(items["inc"]), limb_dark_coeffs,
            float(items["fp"]), float(items["c1"]), float(items["d1"]), float(items["c2"]), float(items["d2"]),
            args.output, args.num_walkers, args.burn_in_runs, args.production_runs, args.extra_phase_terms)
