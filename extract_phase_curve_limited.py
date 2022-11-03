@@ -71,12 +71,15 @@ def correct_lc(wavelengths, fluxes, errors, bjds, y, t0, t_secondary, per, rp, a
     #residuals = lnprob(initial_params, *lnprob_args, plot_result=True, return_residuals=True)
     #plt.show()
     
-    best_step, chain, lnprobs = run_emcee(lnprob, lnprob_args, initial_params, nwalkers, output_file_prefix, burn_in_runs, production_runs)
-    best_lnprob, residuals = lnprob(best_step, *lnprob_args, plot_result=True, return_residuals=True, wavelength=np.mean(wavelengths))
-    print("Best lnprob", best_lnprob)
+    _, chain, lnprobs = run_emcee(lnprob, lnprob_args, initial_params, nwalkers, output_file_prefix, burn_in_runs, production_runs)
     length = len(chain)
     chain = chain[int(length/2):]
     lnprobs = lnprobs[int(length/2):]
+    best_step = chain[np.argmax(lnprobs)]
+    best_lnprob = lnprobs[np.argmax(lnprobs)]
+    
+    _, residuals = lnprob(best_step, *lnprob_args, plot_result=True, return_residuals=True, wavelength=np.mean(wavelengths))
+    print("Best lnprob", best_lnprob)
 
     A = np.sqrt(chain[:,1]**2 + chain[:,2]**2)
     phi = np.arctan2(chain[:,2], chain[:,1]) * 180 / np.pi

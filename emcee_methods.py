@@ -524,7 +524,11 @@ def run_sampler_return_best(sampler, total_runs, output_dir, output_prefix, init
             index = np.argmax(sampler.flatlnprobability)
             best_lnprob = sampler.flatlnprobability[index]
             best_step = sampler.flatchain[index]
-            
+
+        chain_name = os.path.join(output_dir, output_prefix + str(chunk_counter) + "_chain.npy")
+        lnprob_name = os.path.join(output_dir, output_prefix + str(chunk_counter) + "_lnprob.npy")
+        np.save(chain_name, sampler.flatchain)
+        np.save(lnprob_name, sampler.flatlnprobability)
         print("Burn in acceptance fraction for chunk {0}: {1}".format(chunk_counter, np.median(sampler.acceptance_fraction)))
         chunk_counter += 1
 

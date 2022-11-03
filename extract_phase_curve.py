@@ -43,12 +43,16 @@ def correct_lc(wavelengths, fluxes, errors, bjds, y, t0, per, rp, a, inc,
     w = 2*np.pi/per
     lnprob_args = (initial_batman_params, transit_model, eclipse_model, bjds, fluxes, errors, y, t0, extra_phase_terms)
     
-    best_step, chain, lnprobs = run_emcee(lnprob, lnprob_args, initial_params, nwalkers, output_file_prefix, burn_in_runs, production_runs)
+    _, chain, lnprobs = run_emcee(lnprob, lnprob_args, initial_params, nwalkers, output_file_prefix, burn_in_runs, production_runs)
+    length = len(chain)
+    chain = chain[int(length/2):]
+    lnprobs = lnprobs[int(length/2):]
+    best_step = chain[np.argmax(lnprobs)]
+    best_lnprob = lnprobs[np.argmax(lnprobs)]    
+    
     print("Best step", best_step)
-    best_lnprob, residuals = lnprob(best_step, *lnprob_args, plot_result=True, return_residuals=True)
-    chain = chain[int(len(chain)/2):]
-    lnprobs = lnprobs[int(len(chain)/2):]
-
+    _, residuals = lnprob(best_step, *lnprob_args, plot_result=True, return_residuals=True)
+    
     A = np.sqrt(chain[:,3]**2 + chain[:,4]**2)
     phi = np.arctan2(chain[:,4], chain[:,3]) * 180 / np.pi
 
