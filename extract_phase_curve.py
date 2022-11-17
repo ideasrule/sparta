@@ -66,7 +66,7 @@ def correct_lc(wavelengths, fluxes, errors, bjds, y, t0, per, rp, a, inc,
     corner.corner(chain, range=[0.99] * chain.shape[1], labels=labels)
     plt.show()
 
-    night_Fp = chain[:,0] - 2*chain[:,1]
+    night_Fp = chain[:,2] - 2*chain[:,3]
     
     with open(output_txt, "w") as f:
         f.write("#min_wavelength max_wavelength A_med A_lower_err A_upper_err phi_med phi_lower_err phi_upper_err Fp_med Fp_lower_err Fp_upper_err RpRs_med RpRs_lower_err RpRs_upper_err night_Fp_med night_Fp_lower_err night_Fp_upper_err lnprob\n")    
