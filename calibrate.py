@@ -96,7 +96,7 @@ def get_slopes_initial(after_gain, read_noise):
     return full_signal_estimate, full_error, median_residuals
 
 
-def get_slopes(after_gain, read_noise, max_iter=50):
+def get_slopes(after_gain, read_noise, max_iter=50, sigma=5):
     N = N_grp - 1 - BAD_GRPS
     j = np.array(np.arange(1, N + 1), dtype=float)
 
@@ -121,7 +121,7 @@ def get_slopes(after_gain, read_noise, max_iter=50):
 
             #Find cosmic rays and other anomalies
             z_scores = (diff_array[i] - signal_estimate[i, np.newaxis]) / noise[i, np.newaxis]
-            bad_mask[i] = np.abs(z_scores) > 5
+            bad_mask[i] = np.abs(z_scores) > sigma
             weights[bad_mask[i].transpose(1,2,0)] = 0
             weights_sum = np.sum(weights, axis=2)
             if np.sum(weights_sum == 0) > 0:
@@ -130,7 +130,7 @@ def get_slopes(after_gain, read_noise, max_iter=50):
                 pixel_bad_mask[i][bad_pos] = True
                 weights[bad_pos] += 1
 
-            slightly_bad = np.sum(bad_mask[i], axis=0) > 5
+            slightly_bad = np.sum(bad_mask[i], axis=0) > sigma
             pixel_bad_mask[i][slightly_bad] = True
                 
             signal_estimate[i] = np.sum(diff_array[i].transpose(1,2,0) * weights, axis=2) / np.sum(weights, axis=2)
@@ -180,7 +180,7 @@ def apply_flat(signal, error, include_flat_error=False):
 
 def get_read_noise():
     with astropy.io.fits.open(RNOISE_FILE) as hdul:
-        return GAIN * hdul[1].data[SLITLESS_TOP:SLITLESS_BOT, SLITLESS_LEFT:SLITLESS_RIGHT]
+        return GAIN * hdul[1].data[SLITLESS_TOP:SLITLESS_BOT, SLITLESS_LEFT:SLITLESS_RIGHT] / np.sqrt(2)
 
 for filename in sys.argv[1:]:
     hdul = astropy.io.fits.open(filename)
