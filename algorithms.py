@@ -86,6 +86,7 @@ def robust_polyfit(xs, ys, deg, target_xs=None, include_residuals=False, inverse
         return result, residuals
     return result
 
+#263 for alternative
 def get_data_pickle(min_wavelength, max_wavelength, trim_start=525, filename="data.pkl"):
     result = pickle.load(open(filename, "rb"))
     cond = np.logical_and(result["wavelengths"] >= min_wavelength/1000,
@@ -98,8 +99,9 @@ def get_data_pickle(min_wavelength, max_wavelength, trim_start=525, filename="da
     data /= median
     errors /= median
     y = result["y"][trim_start:]
+    x = result["x"][trim_start:]
 
-    return result["times"][trim_start:], data, errors, result["wavelengths"][cond], y
+    return result["times"][trim_start:], data, errors, result["wavelengths"][cond], y, x
 
 
 def get_data_txt(start_bin, end_bin, trim_start=2000, filename="lightcurve.txt"):
