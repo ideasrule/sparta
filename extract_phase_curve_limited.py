@@ -31,6 +31,8 @@ def reject_outliers(data, errors, times, y, x, sigma=4):
 
 
 def estimate_limb_dark(wavelength, filename="limb_dark.txt"):
+    #return [0.00000,     0.847989,     -1.05762,     0.414449]
+    
     all_wave, all_c1, all_c2, all_c3 = np.loadtxt(filename, usecols=(0, 2, 3, 4), skiprows=2, unpack=True)
     coeffs = [0,
               np.interp(wavelength, all_wave, all_c1),
@@ -55,7 +57,7 @@ def correct_lc(wavelengths, fluxes, errors, bjds, y, x, t0, t_secondary, per, rp
     error_factor = 1.3
     print("Error factor", error_factor)
     if extra_phase_terms:
-        initial_params = np.array([fp, C1, D1, C2, D2, rp, error_factor, 1, 0, 0.1, 0, 0, 0])
+        initial_params = np.array([fp, C1, D1, C2, D2, rp, error_factor, 1, 0, 1./24, 0, 0, 0])
         labels = ["Fp", "C1", "D1", "C2", "D2", "rp", "error", "Fstar", "Aramp", "tau", "cy", "cx", "m"]
         rp_index = 5
     else:
@@ -65,7 +67,8 @@ def correct_lc(wavelengths, fluxes, errors, bjds, y, x, t0, t_secondary, per, rp
 
     #All arguments, aside from the parameters, that will be passed to lnprob
     w = 2*np.pi/per
-    lnprob_args = (initial_batman_params, transit_model, eclipse_model, bjds, fluxes, errors, y, x, t0, None if wavelengths[0] < 10 else 0.08, extra_phase_terms)
+    #0.04 for GJ 1214b, 30 min
+    lnprob_args = (initial_batman_params, transit_model, eclipse_model, bjds, fluxes, errors, y, x, t0, None if wavelengths[0] < 10 else 0.04, extra_phase_terms)
 
     #Plot initial
     #residuals = lnprob(initial_params, *lnprob_args, plot_result=True, return_residuals=True)
@@ -100,7 +103,7 @@ def correct_lc(wavelengths, fluxes, errors, bjds, y, x, t0, t_secondary, per, rp
     plt.show()
     
     night_Fp = chain[:,0] - 2*chain[:,1]
-    
+    print("Night Fp", np.percentile(night_Fp, 16), np.median(night_Fp), np.percentile(night_Fp, 84))
     if not os.path.exists(output_txt):
         with open(output_txt, "w") as f:
             f.write("#min_wavelength max_wavelength A_med A_lower_err A_upper_err phi_med phi_lower_err phi_upper_err Fp_med Fp_lower_err Fp_upper_err RpRs_med RpRs_lower_err RpRs_upper_err night_Fp_med night_Fp_lower_err night_Fp_upper_err lnprob\n")
@@ -123,9 +126,10 @@ parser.add_argument("--production-runs", type=int, default=1000, help="Number of
 parser.add_argument("--num-walkers", type=int, default=100, help="Number of walkers in the ensemble sampler")
 parser.add_argument("-o", "--output", type=str, default="chain", help="Directory to store the chain and lnprob arrays")
 parser.add_argument("--extra-phase-terms", action="store_true", help="Include C2 and D2 in phase curve fit")
+parser.add_argument("-e", "--exclude", type=int, default=263, help="Number of integrations to trim")
 
 args = parser.parse_args()
-bjds, fluxes, flux_errors, wavelengths, y, x = get_data_pickle(args.start_wave, args.end_wave)
+bjds, fluxes, flux_errors, wavelengths, y, x = get_data_pickle(args.start_wave, args.end_wave, args.exclude)
 fluxes, flux_errors, bjds, y, x = reject_outliers(fluxes, flux_errors, bjds, y, x)
 print("Wavelengths", wavelengths)
 
