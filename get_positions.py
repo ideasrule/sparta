@@ -4,6 +4,7 @@ import matplotlib.pyplot as plt
 import sys
 import pdb
 import scipy.optimize
+from multiprocessing import Pool
 from scipy.interpolate import RectBivariateSpline
 from constants import LEFT_MARGIN
 
@@ -52,15 +53,13 @@ for filename in sys.argv[1:]:
             
         all_filenames += len(data) * [filename]
         all_int_nums += list(np.arange(data.shape[0]))
-      
+
 print(len(all_data), len(all_filenames), len(all_int_nums))
 template = np.median(all_data, axis=0)
 fix_outliers(template, np.isnan(template))
 
-f = open("positions.txt", "w")
-f.write("#Filename Integration y x A\n")
 
-for i in range(len(all_data)):
+def do_one(i):
     bounds = ((-0.4,0.4), (-0.2,0.2), (0.98, 1.02))
     result = scipy.optimize.minimize(chi_sqr, [0,0,1], args=(all_data[i], all_error[i], template), bounds=bounds, method="Nelder-Mead")
 
@@ -79,12 +78,15 @@ for i in range(len(all_data)):
     if not result.success or hit_bounds:
         result.x *= np.nan
 
-    all_y.append(result.x[0])
-    all_x.append(result.x[1])
-    all_A.append(result.x[2])
-    
-    f.write("{} {} {} {} {}\n".format(all_filenames[i], all_int_nums[i], result.x[0], result.x[1], result.x[2]))
+    return result.x
 
+with Pool() as p:
+    results = p.map(do_one, range(len(all_data)))    
+
+f = open("positions.txt", "w")
+f.write("#Filename Integration y x A\n")
+for i in range(len(all_data)):
+    f.write("{} {} {} {} {}\n".format(all_filenames[i], all_int_nums[i], results[i][0], results[i][1], results[i][2]))
 f.close()
 
 #plt.imshow(template)
