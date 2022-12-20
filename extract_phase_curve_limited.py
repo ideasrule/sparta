@@ -57,8 +57,8 @@ def correct_lc(wavelengths, fluxes, errors, bjds, y, t0, t_secondary, per, rp, a
     error_factor = 1.3
     print("Error factor", error_factor)
     if extra_phase_terms:
-        initial_params = np.array([fp, C1, D1, C2, D2, rp, error_factor, 1, 0.00015, 0.06, 0, 0, 0])
-        labels = ["Fp", "C1", "D1", "C2", "D2", "rp", "error", "Fstar", "Aramp", "tau", "cy", "cx", "m"]
+        initial_params = np.array([fp, C1, D1, C2, D2, rp, error_factor, 1, 0.00015, 0.06, 0, 0])
+        labels = ["Fp", "C1", "D1", "C2", "D2", "rp", "error", "Fstar", "Aramp", "tau", "cy", "m"]
         rp_index = 5
     else:
         initial_params = np.array([fp, C1, D1, rp, error_factor, 1, 0, 0.1, 0, 0, 0])
