@@ -98,7 +98,8 @@ def plot_fit_and_residuals(phases, binsize, Lobserved, Lexpected, gp=None, bjds=
     axarr[0].plot(bin_data(phases,binsize), bin_data(Lexpected, binsize), color="r")
     axarr[0].set_ylabel("Relative flux", fontsize=fontsize)
     axarr[0].ticklabel_format(useOffset=False)
-    axarr[0].set_ylim([0.9985, 1.0015])
+    axarr[0].set_ylim([0.9985, max(Lobserved)])
+    #axarr[0].set_ylim([0.9985, 1.0015])
 
     #axarr[2].set_ylim([-0.0005, 0.0005])
     #axarr[2].set_ylim([-0.002, 0.002])
@@ -121,7 +122,7 @@ def lnprob_transit(params, initial_batman_params, transit_model, bjds,
     #now account for prior
     if (np.abs(params[0])) >= batman_params.per/4.0:
         return -np.inf
-    if tau <= 0: return -np.inf
+    if tau <= 0 or tau > 0.1: return -np.inf
         
     if error_factor <= 0 or error_factor >= 5: return -np.inf
     if rp <= 0 or rp >= 1 or a_star <= 0 or b <= 0 or b >= 1: return -np.inf
@@ -136,7 +137,7 @@ def lnprob_transit(params, initial_batman_params, transit_model, bjds,
     result = -0.5*(np.sum(residuals**2/scaled_errors**2 - np.log(1.0/scaled_errors**2)))
 
     if plot_result:
-        binsize = 1
+        binsize = len(fluxes) // 100
         phases = (bjds-batman_params.t0)/batman_params.per
         phases -= np.round(np.median(phases))
 
@@ -263,12 +264,11 @@ def lnprob(params, initial_batman_params, transit_model, eclipse_model, bjds,
         return -np.inf
     
     if Fstar <= 0:
-        return - np.inf
+        return -np.inf
     
-    if tau <= 0 or tau > 0.5:
+    if tau <= 0 or tau > 0.3:
         return -np.inf
 
-    #print(b)
     if Fp >= max_Fp: return -np.inf
     if error_factor <= 0 or error_factor >= 5: return -np.inf
     if rp <= 0 or rp >= 1 or a_star <= 0 or b <= 0 or b >= 1: return -np.inf
@@ -282,16 +282,16 @@ def lnprob(params, initial_batman_params, transit_model, eclipse_model, bjds,
     else:
         Lplanet = get_planet_flux(eclipse_model, batman_params, batman_params.t0, batman_params.per, bjds, Fp, C1, D1, t_secondary=batman_params.t_secondary)
 
-    if np.min(Lplanet) < 0: return -np.inf
+    #if np.min(Lplanet) < 0: return -np.inf
     astro = transit_model.light_curve(batman_params) + Lplanet    
     model = systematics * astro
 
     phases = (bjds - initial_t0) / batman_params.per
     phases -= np.round(np.median(phases))
-    scaled_errors[np.logical_and(phases > -0.06, phases < -0.011)] = 10
+    #scaled_errors[np.logical_and(phases > -0.06, phases < -0.011)] = 10
     
     residuals = fluxes - model
-    residuals[np.logical_and(phases > -0.06, phases < -0.011)] = 0
+    #residuals[np.logical_and(phases > -0.06, phases < -0.011)] = 0
     result = -0.5*(np.sum(residuals**2/scaled_errors**2 - np.log(1.0/scaled_errors**2)))
 
     if plot_result:
@@ -303,7 +303,7 @@ def lnprob(params, initial_batman_params, transit_model, eclipse_model, bjds,
                                                         systematics[i] / Fstar, astro[i], model[i] / Fstar,
                                                         residuals[i] / Fstar))
         
-        binsize = 1
+        binsize = 32
         phases = (bjds-batman_params.t0)/batman_params.per
         phases -= np.round(np.median(phases))
 
@@ -362,7 +362,7 @@ def wavelet_lnlike(residuals, sigma_w, sigma_r, gamma=1):
 
 
 def lnprob_limited(params, batman_params, transit_model, eclipse_model, bjds,
-                           fluxes, errors, y, x, initial_t0, fix_tau, extra_phase_terms=False, plot_result=False, max_Fp=1,
+                           fluxes, errors, y, initial_t0, fix_tau, extra_phase_terms=False, plot_result=False, max_Fp=1,
                            return_residuals=False, wavelength=None, output_filename="lightcurves.txt"):
     batman_params = copy.deepcopy(batman_params)
     Fp = params[0]
@@ -374,35 +374,31 @@ def lnprob_limited(params, batman_params, transit_model, eclipse_model, bjds,
         end_phase_terms = 5
     else:
         end_phase_terms = 3
-    rp, error_factor, Fstar, A, tau, y_coeff, x_coeff, m = params[end_phase_terms:]
-    #m *= 0
-    #y_coeff *= 0
+    rp, error_factor, Fstar, A, tau, y_coeff, m = params[end_phase_terms:]
+
     if Fstar <= 0:
         return -np.inf
 
     if Fp >= max_Fp: return -np.inf
     if error_factor <= 0: return -np.inf
     if rp <= 0 or rp >= 1: return -np.inf
-    if tau <= 0 or tau > 0.3: return -np.inf
+    if tau <= 0 or tau > 0.2: return -np.inf
+    
     if fix_tau is not None:
-        tau = fix_tau
-    #phi = np.arctan2(D1, C1) * 180 / np.pi
-    #if phi < -50 or phi > -30: return -np.inf
-    #A = 0.001
-    
-    #if tau <= 0: return -np.inf
-    
+        lnprior = -0.5 * (tau - fix_tau)**2 / 0.01**2
+    else:
+        lnprior = 0
+
     batman_params.rp = rp
     delta_t = bjds - bjds[0]
-    systematics = Fstar * (1 + A*np.exp(-delta_t/tau) + y_coeff * y + 0*x_coeff * x + m * (bjds - np.mean(bjds)))
-    #systematics[bjds > 59781.54] += step
+    systematics = Fstar * (1 + A*np.exp(-delta_t/tau) + y_coeff * y + m * (bjds - np.mean(bjds)))
+
     if extra_phase_terms:
-        #print("Using extra phase terms")
         Lplanet = get_planet_flux(eclipse_model, batman_params, batman_params.t0, batman_params.per, bjds, Fp, C1, D1, C2, D2, t_secondary=batman_params.t_secondary)
     else:
         Lplanet = get_planet_flux(eclipse_model, batman_params, batman_params.t0, batman_params.per, bjds, Fp, C1, D1, t_secondary=batman_params.t_secondary)
 
-    if np.min(Lplanet) < 0: return -np.inf
+    #if np.min(Lplanet) < 0: return -np.inf
     
     astro = transit_model.light_curve(batman_params) + Lplanet
     model = systematics * astro
@@ -411,21 +407,8 @@ def lnprob_limited(params, batman_params, transit_model, eclipse_model, bjds,
 
     phases = (bjds-batman_params.t0)/batman_params.per
     phases -= np.round(np.median(phases))
-    #scaled_errors[np.abs(phases) < 0.09] = 10
-
-    scaled_errors[np.abs(np.abs(phases) - 0.011) < 0.002] = 10
-    scaled_errors[np.logical_and(phases > -0.06, phases < -0.011)] = 10
-    #scaled_errors[np.logical_and(phases > 0.0856, phases < 0.1524)] = 10
-    
-    #scaled_errors[np.logical_and(phases > -0.49, phases < -0.45)] = 10
-    #scaled_errors[np.abs(phases) < 0.06] = 10
-    #scaled_errors[np.logical_and(phases > 0.09, phases < 0.15)] = 10
-    #print("Excluded {} points".format(np.sum(np.abs(np.abs(phases) - 0.011) < 0.002)))
-
-    residuals[np.abs(np.abs(phases) - 0.011) < 0.002] = 0
-    residuals[np.logical_and(phases > -0.06, phases < -0.011)] = 0
-    #result = wavelet_lnlike(residuals, np.median(errors), error_factor*np.median(errors))
-    result = -0.5*(np.sum(residuals**2/scaled_errors**2 - np.log(1.0/scaled_errors**2)))
+   
+    result = lnprior - 0.5*(np.sum(residuals**2/scaled_errors**2 - np.log(1.0/scaled_errors**2)))
 
     if plot_result:
         print("lnprob", result)
@@ -438,9 +421,8 @@ def lnprob_limited(params, batman_params, transit_model, eclipse_model, bjds,
                 f.write("{} {} {} {} {} {} {} {}\n".format(wavelength, bjds[i], fluxes[i] / Fstar, scaled_errors[i] / Fstar,
                                                      systematics[i] / Fstar, astro[i], model[i] / Fstar,
                                                      residuals[i] / Fstar))
-
                 
-        binsize = 1
+        binsize = 64
         #residuals -= np.mean(residuals)
         phases = (bjds-batman_params.t0)/batman_params.per
         phases -= np.round(np.median(phases))
@@ -469,6 +451,7 @@ def lnprob_limited(params, batman_params, transit_model, eclipse_model, bjds,
     if np.isnan(result):
         pdb.set_trace()
         print("result")
+
     return result
 
 

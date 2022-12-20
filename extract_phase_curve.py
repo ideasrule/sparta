@@ -31,7 +31,7 @@ def correct_lc(wavelengths, fluxes, errors, bjds, y, t0, per, rp, a, inc,
     print("Error factor", error_factor)
     b = a*np.cos(inc*np.pi/180)
     if extra_phase_terms:
-        initial_params = np.array([0, 0, fp, C1, D1, C2, D2, rp, a, b, error_factor, 1, 0, 1./24, 0, 0])
+        initial_params = np.array([0, 0, fp, C1, D1, C2, D2, rp, a, b, error_factor, 1, 0.0012, 0.06, 0, 0])
         labels = ["delta_t0", "delta_te", "Fp", "C1", "D1", "C2", "D2", "rp", "a", "b", "error", "Fstar", "Aramp", "tau", "cy", "m"]
         rp_index = 7
     else:
@@ -75,21 +75,23 @@ def correct_lc(wavelengths, fluxes, errors, bjds, y, t0, per, rp, a, inc,
             f.write("{} {} {} ".format(np.median(var), np.median(var) - np.percentile(var, 16), np.percentile(var, 84) - np.median(var)))
         f.write("{}".format(best_lnprob))
         f.write("\n")
+    return chain, lnprobs
             
 parser = argparse.ArgumentParser(description="Extracts phase curve and transit information from light curves")
 parser.add_argument("config_file", help="Contains transit, eclipse, and phase curve parameters")
 parser.add_argument("start_wave", type=float)
 parser.add_argument("end_wave", type=float)
 parser.add_argument("-b", "--bin-size", type=int, default=1, help="Bin size to use on data")
-parser.add_argument("--burn-in-runs", type=int, default=1000, help="Number of burn in runs")
+parser.add_argument("--burn-in-runs", type=int, default=2000, help="Number of burn in runs")
 parser.add_argument("--production-runs", type=int, default=1000, help="Number of production runs")
 parser.add_argument("--num-walkers", type=int, default=100, help="Number of walkers in the ensemble sampler")
 parser.add_argument("-o", "--output", type=str, default="chain", help="Directory to store the chain and lnprob arrays")
 parser.add_argument("--extra-phase-terms", action="store_true", help="Include C2 and D2 in phase curve fit")
+parser.add_argument("-e", "--exclude", type=int, default=525, help="How many integrations to trim at the beginning")
 
 args = parser.parse_args()
 
-bjds, fluxes, flux_errors, wavelengths, y = get_data_pickle(args.start_wave, args.end_wave)
+bjds, fluxes, flux_errors, wavelengths, y, x = get_data_pickle(args.start_wave, args.end_wave, args.exclude)
 
 bin_size = args.bin_size
 binned_fluxes = bin_data(fluxes, bin_size)
@@ -111,7 +113,9 @@ config = ConfigParser()
 config.read(args.config_file)
 items = dict(config.items(default_section_name))
 
-correct_lc(wavelengths, binned_fluxes, binned_errors, binned_bjds, binned_y - smoothed_binned_y, float(items["t0"]), float(items["per"]),
+chain, lnprobs = correct_lc(wavelengths, binned_fluxes, binned_errors, binned_bjds, binned_y - smoothed_binned_y, float(items["t0"]), float(items["per"]),
            float(items["rp"]), float(items["a"]), float(items["inc"]), eval(items["limb_dark_coeffs"]),
            float(items["fp"]), float(items["c1"]), float(items["d1"]), float(items["c2"]), float(items["d2"]),
            args.output, args.num_walkers, args.burn_in_runs, args.production_runs, args.extra_phase_terms)
+np.save("white_chain.npy", chain)
+np.save("white_lnprobs.npy", lnprobs)

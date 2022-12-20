@@ -7,6 +7,8 @@ import matplotlib.pyplot as plt
 import batman
 from algorithms import reject_beginning, bin_data, get_mad, \
     get_data_pickle, print_stats
+from scipy.ndimage import median_filter
+import astropy.stats
 import emcee
 import argparse
 from configparser import ConfigParser
@@ -14,12 +16,12 @@ from emcee_methods import lnprob_transit_limited as lnprob
 from emcee_methods import get_batman_params, run_emcee
 import time
 import corner
+import pdb
 
-
-def reject_outliers(data, errors, times, y, sigma=4):
+def reject_outliers(data, errors, times, y, x, sigma=4):
     detrended = data - median_filter(data, int(len(data) / 100))
     mask = astropy.stats.sigma_clip(detrended, sigma).mask
-    return data[~mask], errors[~mask], times[~mask], y[~mask]
+    return data[~mask], errors[~mask], times[~mask], y[~mask], x[~mask]
 
 def estimate_limb_dark(wavelength, filename="limb_dark.txt"):
     all_wave, all_c1, all_c2 = np.loadtxt(filename, usecols=(6, 8, 10), skiprows=2, unpack=True)
@@ -93,6 +95,7 @@ parser.add_argument("-e", "--exclude-beginning", type=int, default=1122, help="H
 args = parser.parse_args()
 
 bjds, fluxes, flux_errors, wavelengths, y, x = get_data_pickle(args.start_wave, args.end_wave, args.exclude_beginning)
+fluxes, flux_errors, bjds, y, x = reject_outliers(fluxes, flux_errors, bjds, y, x)
 
 bin_size = args.bin_size
 binned_fluxes = bin_data(fluxes, bin_size)

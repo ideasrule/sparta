@@ -1,13 +1,15 @@
 from astropy.io import fits
+import astropy.stats
 import sys
 import matplotlib
-matplotlib.use("Agg")
+#matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import numpy as np
 from numpy.polynomial.chebyshev import chebval
 import scipy.linalg
 import os.path
 import pdb
+from multiprocessing import Pool
 from constants import HIGH_ERROR, LEFT_MARGIN, EXTRACT_Y_MIN, EXTRACT_Y_MAX, SUM_EXTRACT_WINDOW, SLITLESS_TOP, SLITLESS_BOT, BAD_GRPS, WCS_FILE, BKD_WIDTH
 from scipy.stats import median_abs_deviation
 
@@ -40,11 +42,8 @@ def get_wavelengths():
                                 hdul[1].data["WAVELENGTH"][::-1])
         return wavelengths
                                 
-
-
-    
-print("Applying simple extraction")
-for filename in sys.argv[1:]:
+def process_one(filename):
+    print("Processing", filename)
     with fits.open(filename) as hdul:
         wavelengths = get_wavelengths()
         second_hdu = fits.BinTableHDU.from_columns([
@@ -64,8 +63,13 @@ for filename in sys.argv[1:]:
             data = hdul["SCI"].data[i][EXTRACT_Y_MIN:EXTRACT_Y_MAX]
             err = hdul["ERR"].data[i][EXTRACT_Y_MIN:EXTRACT_Y_MAX]
             data[:, 0:LEFT_MARGIN] = 0
-            bkd = np.mean(data[:, -BKD_WIDTH:], axis=1)
-            bkd_var = np.sum(err[:, -BKD_WIDTH:]**2, axis=1) / BKD_WIDTH**2
+
+            bkd_cols = np.hstack([data[:,LEFT_MARGIN:LEFT_MARGIN+BKD_WIDTH], data[:,-BKD_WIDTH-LEFT_MARGIN:-LEFT_MARGIN]])
+            bkd_cols = astropy.stats.sigma_clip(bkd_cols, axis=1)            
+            bkd_err_cols = np.hstack([err[:,LEFT_MARGIN:LEFT_MARGIN+BKD_WIDTH], err[:,-BKD_WIDTH-LEFT_MARGIN:-LEFT_MARGIN]])
+            
+            bkd = np.ma.mean(bkd_cols, axis=1)
+            bkd_var = np.sum(bkd_err_cols**2, axis=1) / bkd_err_cols.shape[1]**2
         
             profile = np.sum(data, axis=0)
             trace_loc = np.argmax(profile)
@@ -94,4 +98,8 @@ for filename in sys.argv[1:]:
     
         output_hdul = fits.HDUList(hdulist)
         output_hdul.writeto("x1d_" + os.path.basename(filename), overwrite=True)
+    
+filenames = sys.argv[1:]
+with Pool() as pool:
+    pool.map(process_one, filenames)
     

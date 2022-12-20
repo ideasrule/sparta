@@ -41,7 +41,7 @@ def estimate_limb_dark(wavelength, filename="limb_dark.txt"):
     return coeffs
 
 
-def correct_lc(wavelengths, fluxes, errors, bjds, y, x, t0, t_secondary, per, rp, a, inc,
+def correct_lc(wavelengths, fluxes, errors, bjds, y, t0, t_secondary, per, rp, a, inc,
                limb_dark_coeffs, fp, C1, D1, C2, D2, output_file_prefix="chain",
                nwalkers=100, burn_in_runs=100, production_runs=1000, extra_phase_terms=False, output_txt="result.txt"):
     print("Median is", np.median(fluxes))
@@ -57,7 +57,7 @@ def correct_lc(wavelengths, fluxes, errors, bjds, y, x, t0, t_secondary, per, rp
     error_factor = 1.3
     print("Error factor", error_factor)
     if extra_phase_terms:
-        initial_params = np.array([fp, C1, D1, C2, D2, rp, error_factor, 1, 0, 1./24, 0, 0, 0])
+        initial_params = np.array([fp, C1, D1, C2, D2, rp, error_factor, 1, 0.00015, 0.06, 0, 0, 0])
         labels = ["Fp", "C1", "D1", "C2", "D2", "rp", "error", "Fstar", "Aramp", "tau", "cy", "cx", "m"]
         rp_index = 5
     else:
@@ -67,8 +67,7 @@ def correct_lc(wavelengths, fluxes, errors, bjds, y, x, t0, t_secondary, per, rp
 
     #All arguments, aside from the parameters, that will be passed to lnprob
     w = 2*np.pi/per
-    #0.04 for GJ 1214b, 30 min
-    lnprob_args = (initial_batman_params, transit_model, eclipse_model, bjds, fluxes, errors, y, x, t0, None if wavelengths[0] < 10 else 0.04, extra_phase_terms)
+    lnprob_args = (initial_batman_params, transit_model, eclipse_model, bjds, fluxes, errors, y, t0, 0.035 if wavelengths[0] >= 10.5 else None, extra_phase_terms)
 
     #Plot initial
     #residuals = lnprob(initial_params, *lnprob_args, plot_result=True, return_residuals=True)
@@ -86,13 +85,7 @@ def correct_lc(wavelengths, fluxes, errors, bjds, y, x, t0, t_secondary, per, rp
 
     A = np.sqrt(chain[:,1]**2 + chain[:,2]**2)
     phi = np.arctan2(chain[:,2], chain[:,1]) * 180 / np.pi
-    #phi[phi > 0] -= 360
 
-    #samples = np.array([phi, chain[:,5], chain[:,7], chain[:,8], chain[:,9]]).T
-    #fig = corner.corner(samples, labels=["phi", "slope", "Aramp", "tau", "cy"])
-    #plt.show()
-
-    
     print_stats(A, "A")
     print_stats(phi, "phi")
     for i in range(chain.shape[1]):
@@ -150,10 +143,6 @@ binned_fluxes, binned_errors, binned_bjds, binned_y, binned_x = reject_outliers(
 delta_t = binned_bjds - np.median(binned_bjds)
 coeffs = np.polyfit(delta_t, binned_y, 1)
 smoothed_binned_y = np.polyval(coeffs, delta_t)
-coeffs = np.polyfit(delta_t, binned_x, 1)
-smoothed_binned_x = np.polyval(coeffs, delta_t)
-
-
 
 #get values from configuration file
 default_section_name = "DEFAULT"
@@ -164,7 +153,7 @@ limb_dark_coeffs = estimate_limb_dark(np.mean(wavelengths))
 print("Found limb dark coeffs", limb_dark_coeffs)
 print("# points", len(binned_fluxes))
 
-chain, lnprobs = correct_lc(wavelengths, binned_fluxes, binned_errors, binned_bjds, binned_y - smoothed_binned_y, binned_x - smoothed_binned_x, float(items["t0"]), float(items["t_secondary"]), float(items["per"]),
+chain, lnprobs = correct_lc(wavelengths, binned_fluxes, binned_errors, binned_bjds, binned_y - smoothed_binned_y, float(items["t0"]), float(items["t_secondary"]), float(items["per"]),
            float(items["rp"]), float(items["a"]), float(items["inc"]), limb_dark_coeffs,
            float(items["fp"]), float(items["c1"]), float(items["d1"]), float(items["c2"]), float(items["d2"]),
            args.output, args.num_walkers, args.burn_in_runs, args.production_runs, args.extra_phase_terms)

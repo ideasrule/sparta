@@ -87,7 +87,7 @@ def robust_polyfit(xs, ys, deg, target_xs=None, include_residuals=False, inverse
     return result
 
 #263 for alternative, 525 for longer
-def get_data_pickle(min_wavelength, max_wavelength, trim_start=263, filename="data.pkl"):
+def get_data_pickle(min_wavelength, max_wavelength, trim_start=525, filename="data.pkl"):
     result = pickle.load(open(filename, "rb"))
     cond = np.logical_and(result["wavelengths"] >= min_wavelength/1000,
                           result["wavelengths"] < max_wavelength/1000)
