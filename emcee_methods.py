@@ -228,6 +228,118 @@ def lnprob_transit_limited(params, batman_params, transit_model, bjds,
         print("result")
     return result
 
+def lnprob_eclipse(params, initial_batman_params, eclipse_model, bjds,
+                   fluxes, errors, y, initial_t0, plot_result=False,
+                   return_residuals=False, max_Fp=0.02,
+                   output_filename="white_lightcurve.txt"):
+    eclipse_offset, Fp, error_factor, Fstar, A, tau, y_coeff, m = params
+
+    batman_params = initial_batman_params
+    batman_params.t_secondary = initial_t0 + batman_params.per/2.0 + eclipse_offset
+    
+    #now account for prior
+    if (np.abs(params[0])) >= batman_params.per/4.0:
+        return -np.inf
+    if tau <= 0 or tau > 0.1: return -np.inf
+    if Fp < 0 or Fp > max_Fp: return -np.inf
+        
+    if error_factor <= 0 or error_factor >= 5: return -np.inf
+    scaled_errors = error_factor * errors
+
+    delta_t = bjds - bjds[0]
+    systematics = Fstar * (1 + A*np.exp(-delta_t/tau) + y_coeff * y + m * (bjds - np.mean(bjds)))
+    astro = 1 + get_planet_flux(eclipse_model, batman_params, batman_params.t0, batman_params.per, bjds, Fp, 0, 0, 0, 0, t_secondary=batman_params.t_secondary)
+    model = systematics * astro
+    
+    residuals = fluxes - model
+    result = -0.5*(np.sum(residuals**2/scaled_errors**2 - np.log(1.0/scaled_errors**2)))
+
+    if plot_result:
+        print("lnprob of plotted", result)
+        with open(output_filename, "w") as f:
+            f.write("#time flux uncertainty systematics_model astro_model total_model residuals\n")        
+            for i in range(len(residuals)):
+                f.write("{} {} {} {} {} {} {}\n".format(
+                    bjds[i], fluxes[i] / Fstar, scaled_errors[i] / Fstar,
+                    systematics[i] / Fstar, astro[i], model[i] / Fstar,
+                    residuals[i] / Fstar))
+        
+        binsize = len(fluxes) // 100
+        phases = (bjds-batman_params.t0)/batman_params.per
+        phases -= np.round(np.median(phases))
+
+        plot_fit_and_residuals(phases, binsize, fluxes / systematics, astro)
+        plt.figure()
+        plt.scatter(bjds, systematics)
+        print("Residuals STD", np.std(residuals))
+        
+    if np.random.randint(0, 1000) == 0:
+        print(result/len(residuals), Fp, error_factor, np.median(np.abs(residuals)))
+
+    if return_residuals:
+        return result, residuals
+
+    if np.isnan(result):
+        pdb.set_trace()
+    return result
+
+def lnprob_eclipse_limited(params, initial_batman_params, eclipse_model, bjds,
+                           fluxes, errors, y, initial_t0, plot_result=False,
+                           return_residuals=False, wavelength=None, max_Fp=0.02,
+                           output_filename="lightcurves.txt"):
+    Fp, error_factor, Fstar, A, tau, y_coeff, m = params
+    #A = 0
+    batman_params = initial_batman_params
+    
+    #now account for prior
+    if (np.abs(params[0])) >= batman_params.per/4.0:
+        return -np.inf
+    if tau <= 0 or tau > 0.1: return -np.inf
+    if Fp < 0 or Fp > max_Fp: return -np.inf
+        
+    if error_factor <= 0 or error_factor >= 5: return -np.inf
+    scaled_errors = error_factor * errors
+
+    delta_t = bjds - bjds[0]
+    systematics = Fstar * (1 + A*np.exp(-delta_t/tau) + y_coeff * y + m * (bjds - np.mean(bjds)))
+    astro = 1 + get_planet_flux(eclipse_model, batman_params, batman_params.t0, batman_params.per, bjds, Fp, 0, 0, 0, 0, t_secondary=batman_params.t_secondary)
+    model = systematics * astro
+    
+    residuals = fluxes - model
+    result = -0.5*(np.sum(residuals**2/scaled_errors**2 - np.log(1.0/scaled_errors**2)))
+
+    if plot_result:
+        print("lnprob of plotted", result)
+        if not os.path.exists(output_filename):
+             with open(output_filename, "w") as f:
+                 f.write("#wavelength time flux uncertainty systematics_model astro_model total_model residuals\n")
+        
+        with open(output_filename, "a") as f:
+            for i in range(len(residuals)):
+                f.write("{} {} {} {} {} {} {} {}\n".format(
+                    wavelength, bjds[i], fluxes[i] / Fstar, scaled_errors[i] / Fstar,
+                    systematics[i] / Fstar, astro[i], model[i] / Fstar,
+                    residuals[i] / Fstar))
+        
+        binsize = len(fluxes) // 100
+        phases = (bjds-batman_params.t0)/batman_params.per
+        phases -= np.round(np.median(phases))
+
+        plot_fit_and_residuals(phases, binsize, fluxes / systematics, astro)
+        plt.figure()
+        plt.scatter(bjds, systematics)
+        print("Residuals STD", np.std(residuals))
+        
+    if np.random.randint(0, 1000) == 0:
+        print(result/len(residuals), Fp, error_factor, np.median(np.abs(residuals)))
+
+    if return_residuals:
+        return result, residuals
+
+    if np.isnan(result):
+        pdb.set_trace()
+    return result
+
 def lnprob(params, initial_batman_params, transit_model, eclipse_model, bjds,
            fluxes, errors, y, initial_t0, 
            extra_phase_terms=False, plot_result=False, max_Fp=1,
