@@ -30,15 +30,8 @@ def read_data(filenames):
                 data = np.append(data, lcs, axis=0)
                 errors = np.append(errors, lc_errors, axis=0)
                 bkd = np.append(bkd, curr_bkd, axis=0)
-            print(len(times))
-            
-            exp_start = hdul[0].header["BSTRTIME"]
-            exp_end = hdul[0].header["BENDTIME"]
-            int_time = (exp_end - exp_start) / hdul[0].header["NINTS"]
-            times += list(
-                np.linspace(exp_start + int_time * (hdul[0].header["INTSTART"] - 1),
-                            exp_start + int_time * (hdul[0].header["INTEND"] - 1),
-                            len(lcs)))
+            print(len(times))            
+            times += list(hdul["INT_TIMES"].data["int_mid_BJD_TDB"])
             section_edges.append(len(times))
             assert(hdul[0].header["INTEND"] - hdul[0].header["INTSTART"] + 1 == len(lcs))
             
@@ -86,6 +79,7 @@ def reject_rows(data, errors, bkd, times, x, y, sigma=4, num_discard_beginning=1
     plt.ylabel("Flux (bad rows excluded)")
     plt.figure()
     plt.plot(np.sum(data[~bad_rows][:,33:55], axis=1))
+
     return data[~bad_rows], errors[~bad_rows], bkd[~bad_rows], times[~bad_rows], x[~bad_rows], y[~bad_rows]
 
 def reject_cols(data, errors, wavelengths, threshold=1.2):
@@ -107,6 +101,7 @@ def reject_cols(data, errors, wavelengths, threshold=1.2):
 
     
 data, errors, bkd, times, wavelengths, section_edges = read_data(sys.argv[1:])
+
 output = {"uncut_wavelengths": wavelengths,
           "uncut_times": times,
           "uncut_data": data,

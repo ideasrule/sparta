@@ -17,7 +17,7 @@ def get_mask():
 def apply_reset(data):
     after_reset = np.copy(data)
     with astropy.io.fits.open(RESET_FILE) as hdul:
-        reset = np.array(hdul[1].data)
+        reset = np.array(hdul[1].data, dtype=np.float64)
         dq = np.array(hdul["DQ"].data)
         print("Note: throw away first {} integrations".format(reset.shape[0] - 1))
         N_grp = data.shape[1]
@@ -34,9 +34,9 @@ def apply_nonlinearity(data):
 
     with astropy.io.fits.open(NONLINEAR_FILE) as hdul:
         dq = np.array(hdul["DQ"].data[SLITLESS_TOP:SLITLESS_BOT, SLITLESS_LEFT:SLITLESS_RIGHT])
-        coeffs = np.array(hdul[1].data[:, SLITLESS_TOP:SLITLESS_BOT, SLITLESS_LEFT:SLITLESS_RIGHT])
-        result = np.zeros(data.shape)
-        exp_data = np.ones(data.shape)
+        coeffs = np.array(hdul[1].data[:, SLITLESS_TOP:SLITLESS_BOT, SLITLESS_LEFT:SLITLESS_RIGHT], dtype=np.float64)
+        result = np.zeros(data.shape, dtype=np.float64)
+        exp_data = np.ones(data.shape, dtype=np.float64)
         
         for i in range(len(coeffs)):
             result += coeffs[i] * exp_data
@@ -61,7 +61,7 @@ def apply_nonlinearity(data):
 #Dark current subtraction
 def subtract_dark(data):
     with astropy.io.fits.open(DARK_FILE) as dark_hdul:
-        dark = np.array(dark_hdul[1].data)
+        dark = np.array(dark_hdul[1].data, dtype=np.float64)
         mask = dark[-1,0] == 0
 
     N_int_dark = dark.shape[0]
@@ -78,7 +78,7 @@ def subtract_dark(data):
 def get_slopes_initial(after_gain, read_noise):
     N_grp = after_gain.shape[1]
     N = N_grp - 1 - 1 #reject last group
-    j = np.array(np.arange(1, N + 1), dtype=float)
+    j = np.array(np.arange(1, N + 1), dtype=np.float64)
 
     R = read_noise[:, LEFT_MARGIN:]
     cutout = after_gain[:,:-1,:,LEFT_MARGIN:] #reject last group
@@ -113,7 +113,7 @@ def get_slopes_initial(after_gain, read_noise):
 
 def get_slopes(after_gain, read_noise, max_iter=50, sigma=5, bad_grps=0):
     N = N_grp - 1 - bad_grps
-    j = np.array(np.arange(1, N + 1), dtype=float)
+    j = np.array(np.arange(1, N + 1), dtype=np.float64)
 
     R = read_noise[:, LEFT_MARGIN:]
     cutout = after_gain[:,bad_grps:,:,LEFT_MARGIN:]
@@ -178,8 +178,8 @@ def get_slopes(after_gain, read_noise, max_iter=50, sigma=5, bad_grps=0):
 
 def apply_flat(signal, error, include_flat_error=False):
     with astropy.io.fits.open(FLAT_FILE) as hdul:
-        flat = np.array(hdul["SCI"].data)
-        flat_err = np.array(hdul["ERR"].data)
+        flat = np.array(hdul["SCI"].data, dtype=np.float64)
+        flat_err = np.array(hdul["ERR"].data, dtype=np.float64)
 
     invalid = np.isnan(flat)
     flat[invalid] = 1
@@ -193,7 +193,7 @@ def apply_flat(signal, error, include_flat_error=False):
 
 def get_read_noise():
     with astropy.io.fits.open(RNOISE_FILE) as hdul:
-        return GAIN * np.array(hdul[1].data[SLITLESS_TOP:SLITLESS_BOT, SLITLESS_LEFT:SLITLESS_RIGHT]) / np.sqrt(2)
+        return GAIN * np.array(hdul[1].data[SLITLESS_TOP:SLITLESS_BOT, SLITLESS_LEFT:SLITLESS_RIGHT], dtype=np.float64) / np.sqrt(2)
 
 for filename in sys.argv[1:]:
     print("Processing", filename)
@@ -203,7 +203,7 @@ for filename in sys.argv[1:]:
     assert(hdul[0].header["NFRAMES"] == 1)
     assert(hdul[0].header["GROUPGAP"] == 0)
 
-    data = np.array(hdul[1].data, dtype=float)
+    data = np.array(hdul[1].data, dtype=np.float64)
     N_int, N_grp, N_row, N_col = data.shape
 
     mask = get_mask()
@@ -244,7 +244,7 @@ for filename in sys.argv[1:]:
     res1_hdu = astropy.io.fits.ImageHDU(np.cpu(residuals1), name="RESIDUALS1")
     res2_hdu = astropy.io.fits.ImageHDU(np.cpu(residuals2), name="RESIDUALS2")
     read_noise_hdu = astropy.io.fits.ImageHDU(np.cpu(read_noise), name="RNOISE")
-    output_hdul = astropy.io.fits.HDUList([hdul[0], sci_hdu, err_hdu, dq_hdu, flat_err_hdu, read_noise_hdu, res1_hdu, res2_hdu])
+    output_hdul = astropy.io.fits.HDUList([hdul[0], sci_hdu, err_hdu, dq_hdu, flat_err_hdu, read_noise_hdu, res1_hdu, res2_hdu, hdul["INT_TIMES"]])
     output_hdul.writeto("rateints_" + os.path.basename(filename), overwrite=True)
     output_hdul.close()
     hdul.close()

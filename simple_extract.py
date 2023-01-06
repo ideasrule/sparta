@@ -46,16 +46,7 @@ def process_one(filename):
     print("Processing", filename)
     with fits.open(filename) as hdul:
         wavelengths = get_wavelengths()
-        second_hdu = fits.BinTableHDU.from_columns([
-            fits.Column(name="integration_number", format="i4"),
-            fits.Column(name="int_start_MJD_UTC", format="f8"),
-            fits.Column(name="int_mid_MJD_UTC", format="f8"),
-            fits.Column(name="int_end_MJD_UTC", format="f8"),
-            fits.Column(name="int_start_BJD_TDB", format="f8"),
-            fits.Column(name="int_mid_BJD_TDB", format="f8"),
-            fits.Column(name="int_end_BJD_TDB", format="f8")])
-    
-        hdulist = [hdul[0], second_hdu]
+        hdulist = [hdul[0], hdul["INT_TIMES"]]
     
         for i in range(len(hdul["SCI"].data)):
             print("Processing integration", i)
