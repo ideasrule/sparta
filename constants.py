@@ -6,7 +6,7 @@ RIGHT_MARGIN_BKD = 5
 HIGH_ERROR = 1e10
 SUM_EXTRACT_WINDOW = 3
 OPT_EXTRACT_WINDOW = 5
-INSTRUMENT = "MIRI" #Change this
+INSTRUMENT = "NIRCAM" #Change this
 
 if INSTRUMENT == "MIRI":
     BAD_GRPS = 5
@@ -17,7 +17,6 @@ if INSTRUMENT == "MIRI":
     RIGHT = 496
     TOP = 0
     BOT = 72
-    BKD_WIDTH = 15
     TOP_MARGIN = 10
     N_REF = 4
     Y_CENTER = 36
@@ -34,8 +33,11 @@ if INSTRUMENT == "MIRI":
     SKIP_REF = True
     SKIP_RESET = False
 
-    X_MIN = 141
-    X_MAX = 386
+    X_MIN = 30
+    X_MAX = 275
+    BKD_REG_TOP = [10, 25]
+    BKD_REG_BOT = [-25, -10]
+    
 
 elif INSTRUMENT == "NIRCAM":
     BAD_GRPS = 0
@@ -59,10 +61,11 @@ elif INSTRUMENT == "NIRCAM":
     BKD_REG_TOP = [N_REF, N_REF + 7]    
 
     RESET_FILE = None
-    FLAT_FILE = None
+    FLAT_FILE = None    
     MASK_FILE = REF_DIR + "jwst_nircam_mask_0063.fits"
     SUPERBIAS_FILE = REF_DIR + "jwst_nircam_superbias_0058.fits"
     NONLINEAR_FILE = REF_DIR + "jwst_nircam_linearity_0052.fits"
+    WCS_FILE = None
 
     if SUBARR_SIZE == 256:
         RNOISE_FILE = REF_DIR + "jwst_nircam_readnoise_0108.fits"
