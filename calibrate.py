@@ -7,7 +7,8 @@ import sys
 import os.path
 import pdb
 import gc
-from constants import TOP_MARGIN, BAD_GRPS, LEFT, RIGHT, TOP, BOT, NONLINEAR_FILE, DARK_FILE, FLAT_FILE, RNOISE_FILE, RESET_FILE, MASK_FILE, GAIN, ROTATE, SKIP_SUPERBIAS, SKIP_FLAT
+from scipy.ndimage import uniform_filter
+from constants import TOP_MARGIN, BAD_GRPS, LEFT, RIGHT, TOP, BOT, NONLINEAR_FILE, DARK_FILE, FLAT_FILE, RNOISE_FILE, RESET_FILE, MASK_FILE, GAIN, ROTATE, SKIP_SUPERBIAS, SUPERBIAS_FILE, SKIP_FLAT, SKIP_REF, SKIP_RESET, N_REF
 
 def get_mask():
     with astropy.io.fits.open(MASK_FILE) as hdul:
@@ -38,6 +39,22 @@ def apply_reset(data):
 
     return after_reset, dq
 
+def subtract_ref(data, noutputs):
+    result = np.copy(data)
+    chunk_size = int(data.shape[-1] / hdul[0].header["NOUTPUTS"])
+
+    #Subtract ref along top
+    for c in range(int(data.shape[-1]/chunk_size)):
+        c_min = c * chunk_size
+        c_max = (c + 1) * chunk_size
+        mean = np.mean(data[:,:,:N_REF,c_min:c_max], axis=(2,3))
+        result[:,:,:,c_min:c_max] -= mean[:,:,np.newaxis,np.newaxis]
+
+    #Subtract ref along sides
+    mean = np.mean(result[:,:,:,:N_REF], axis=3) / 2 + np.mean(result[:,:,:,-N_REF:], axis=3) / 2
+    result -= mean[:,:,:,np.newaxis]
+    return result
+
 def apply_nonlinearity(data):   
     start = time.time()
 
@@ -52,33 +69,50 @@ def apply_nonlinearity(data):
             exp_data *= data
     end = time.time()
     print("Non linearity took", end - start)
-    return result, dq
+    return result, dq > 0
 
 
 #Dark current subtraction
-def subtract_dark(data):
-    with astropy.io.fits.open(DARK_FILE) as dark_hdul:
-        dark = np.array(np.rot90(dark_hdul[1].data, ROTATE, (-2,-1)), dtype=np.float64)
-        mask = dark[-1,0] == 0
+def subtract_dark(data, nframes, groupgap):
+    with astropy.io.fits.open(DARK_FILE) as hdul:
+        dark = np.array(np.rot90(hdul[1].data, ROTATE, (-2,-1)), dtype=np.float64)
+        dq = np.rot90(hdul["DQ"].data, ROTATE, (-2,-1))
 
-    N_int_dark = dark.shape[0]
-    N_grp_dark = dark.shape[1]
+        if dark.ndim == 4:
+            print("Warning: skipping first {} integrations of dark".format(dark.shape[0] - 1))
+            dark = dark[-1]
+            dq = dq[0,0]
     
-    assert(N_grp <= N_grp_dark)
+    print(dark.shape, dq.shape)
+    #Make dark frame the right size
+    if not (nframes == 1 and groupgap == 0):
+        assert((nframes/2).is_integer())
+        total_frames = nframes + groupgap
+        indices = np.arange(dark.shape[0]) % total_frames
+        include = indices < nframes
+        trunc_dark = dark[include]
+        final_dark = uniform_filter(trunc_dark, [nframes,1,1])[int(nframes/2)::nframes]
+    else:
+        final_dark = dark
+        
+    assert(data.shape[1] <= final_dark.shape[0])
     
-    result = np.copy(data)
-
-    print("Note: throw away first {} integrations".format(dark.shape[0] - 1))
-    result -= dark[-1, :N_grp]
+    result = data - final_dark[:data.shape[1]]
+    mask = (final_dark[0] == 0) | (dq > 0)
     return result, mask
 
 def get_slopes_initial(after_gain, read_noise):
     N_grp = after_gain.shape[1]
-    N = N_grp - 1 - 1 #reject last group
+    if N_grp > 3:
+        ignore_last = 1
+    else:
+        ignore_last = 0
+            
+    N = N_grp - 1 - ignore_last 
     j = np.array(np.arange(1, N + 1), dtype=np.float64)
 
     R = read_noise[TOP_MARGIN:]
-    cutout = after_gain[:,:-1,TOP_MARGIN:] #reject last group
+    cutout = after_gain[:,:N_grp-ignore_last,TOP_MARGIN:] #reject last group
     signal_estimate = (cutout[:,-1] - cutout[:, 0]) / N
     error = np.zeros(signal_estimate.shape)
     diff_array = np.diff(cutout, axis=1)
@@ -90,7 +124,7 @@ def get_slopes_initial(after_gain, read_noise):
         l = np.arccosh(1 + ratio_estimate/2)[:, :, np.newaxis]
 
         weights = -R[:,:,np.newaxis]**-2 * np.exp(l) * (1 - np.exp(-j*l)) * (np.exp(j*l - l*N) - np.exp(l)) / (np.exp(l) - 1)**2 / (np.exp(l) + np.exp(-l*N))
-        weights[:,:,0:BAD_GRPS] = 0
+        weights[:,:,:BAD_GRPS] = 0
         signal_estimate[i] = np.sum(diff_array[i].transpose(1,2,0) * weights, axis=2) / np.sum(weights, axis=2)                
         error[i] = 1. / np.sqrt(np.sum(weights, axis=2))
 
@@ -213,10 +247,15 @@ for filename in sys.argv[1:]:
     if not SKIP_SUPERBIAS:
         print("Subtracting superbias")
         data = subtract_superbias(data)
-    
-    print("Applying reset correction")
-    data, dq = apply_reset(data)
-    mask |= dq
+
+    if not SKIP_REF:
+        print("Subtracting ref pixels")
+        data = subtract_ref(data, hdul[0].header["NOUTPUTS"])
+
+    if not SKIP_RESET:
+        print("Applying reset correction")
+        data, dq = apply_reset(data)
+        mask |= dq
 
     print("Applying non-linearity correction")
     data, dq = apply_nonlinearity(data)
@@ -224,7 +263,7 @@ for filename in sys.argv[1:]:
     gc.collect()
 
     print("Applying dark correction")
-    data, dark_mask = subtract_dark(data)
+    data, dark_mask = subtract_dark(data, nframes, groupgap)
     mask |= dark_mask
 
     print("Applying gain correction")
@@ -238,20 +277,19 @@ for filename in sys.argv[1:]:
 
     print("Getting slopes 2")
     signal, error, per_int_mask, residuals2 = get_slopes(data, read_noise)
-    print("Applying flat")
 
     if not SKIP_FLAT:
+        print("Applying flat")
         signal, error, flat_err = apply_flat(signal, error)
         
     per_int_mask = per_int_mask | mask
     sci_hdu = astropy.io.fits.ImageHDU(np.cpu(signal), name="SCI")
     err_hdu = astropy.io.fits.ImageHDU(np.cpu(error), name="ERR")
     dq_hdu = astropy.io.fits.ImageHDU(np.cpu(per_int_mask), name="DQ")
-    flat_err_hdu = astropy.io.fits.ImageHDU(np.cpu(flat_err), name="FLATERR")
     res1_hdu = astropy.io.fits.ImageHDU(np.cpu(residuals1), name="RESIDUALS1")
     res2_hdu = astropy.io.fits.ImageHDU(np.cpu(residuals2), name="RESIDUALS2")
     read_noise_hdu = astropy.io.fits.ImageHDU(np.cpu(read_noise), name="RNOISE")
-    output_hdul = astropy.io.fits.HDUList([hdul[0], sci_hdu, err_hdu, dq_hdu, flat_err_hdu, read_noise_hdu, res1_hdu, res2_hdu, hdul["INT_TIMES"]])
+    output_hdul = astropy.io.fits.HDUList([hdul[0], sci_hdu, err_hdu, dq_hdu, read_noise_hdu, res1_hdu, res2_hdu, hdul["INT_TIMES"]])
     output_hdul.writeto("rateints_" + os.path.basename(filename).replace("_uncal", ""), overwrite=True)
     output_hdul.close()
     hdul.close()

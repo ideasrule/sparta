@@ -3,13 +3,13 @@ import os
 USE_GPU = False
 REF_DIR = os.path.expanduser("~/jwst_refs/")
 RIGHT_MARGIN_BKD = 5
-BAD_GRPS = 5
 HIGH_ERROR = 1e10
 SUM_EXTRACT_WINDOW = 3
 OPT_EXTRACT_WINDOW = 5
 INSTRUMENT = "MIRI" #Change this
 
 if INSTRUMENT == "MIRI":
+    BAD_GRPS = 5
     ROTATE = -1
     SKIP_SUPERBIAS = True
     SKIP_FLAT = False
@@ -19,6 +19,7 @@ if INSTRUMENT == "MIRI":
     BOT = 72
     BKD_WIDTH = 15
     TOP_MARGIN = 10
+    N_REF = 4
     
     GAIN = 3.1
     NONLINEAR_FILE = REF_DIR + "jwst_miri_linearity_0032.fits"
@@ -28,12 +29,15 @@ if INSTRUMENT == "MIRI":
     RESET_FILE = REF_DIR + "jwst_miri_reset_0073.fits"
     MASK_FILE = REF_DIR + "jwst_miri_mask_0033.fits"
     WCS_FILE = REF_DIR + "jwst_miri_specwcs_0006.fits"
+    SUPERBIAS_FILE = None
+    SKIP_REF = True
+    SKIP_RESET = False
 
     X_MIN = 141
     X_MAX = 386
 
 elif INSTRUMENT == "NIRCAM":
-    
+    BAD_GRPS = 0
     ROTATE = 0
     SUBARR_SIZE = 64 #Change this
     LEFT = 0
@@ -43,12 +47,18 @@ elif INSTRUMENT == "NIRCAM":
     
     SKIP_SUPERBIAS = False
     SKIP_FLAT = True
+    SKIP_REF = False
+    SKIP_RESET = True
 
     N_REF = 4
+    TOP_MARGIN = N_REF
+    
     GAIN = 1.82
     X_CENTER = 33    
     BKD_REG_TOP = [N_REF, N_REF + 7]    
-    
+
+    RESET_FILE = None
+    FLAT_FILE = None
     MASK_FILE = REF_DIR + "jwst_nircam_mask_0063.fits"
     SUPERBIAS_FILE = REF_DIR + "jwst_nircam_superbias_0058.fits"
     NONLINEAR_FILE = REF_DIR + "jwst_nircam_linearity_0052.fits"
