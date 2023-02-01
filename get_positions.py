@@ -6,16 +6,16 @@ import pdb
 import scipy.optimize
 from multiprocessing import Pool
 from scipy.interpolate import RectBivariateSpline
-from constants import LEFT_MARGIN
+from constants import TOP_MARGIN, Y_CENTER
 
 def fix_outliers(data, badpix):
-    for c in range(LEFT_MARGIN, data.shape[1]):
-        rows = np.arange(data.shape[0])
-        good = ~badpix[:,c]
-        repaired = np.interp(rows, rows[good], data[:,c][good])
-        data[:,c] = repaired
+    for r in range(TOP_MARGIN, data.shape[0]):
+        cols = np.arange(data.shape[1])
+        good = ~badpix[r]
+        repaired = np.interp(cols, cols[good], data[r][good])
+        data[r] = repaired
 
-def chi_sqr(params, image, error, template, left=26, right=46, top=10, bottom=-10):
+def chi_sqr(params, image, error, template, left=10, right=-10, top=Y_CENTER-10, bottom=Y_CENTER+10):
     delta_y, delta_x, A = params
     ys = np.arange(image.shape[0])
     xs = np.arange(image.shape[1])
@@ -54,6 +54,8 @@ for filename in sys.argv[1:]:
         all_filenames += len(data) * [filename]
         all_int_nums += list(np.arange(data.shape[0]))
 
+all_error = np.array(all_error)
+all_error[np.isnan(all_error)] = np.inf
 print(len(all_data), len(all_filenames), len(all_int_nums))
 template = np.median(all_data, axis=0)
 fix_outliers(template, np.isnan(template))

@@ -20,6 +20,7 @@ if INSTRUMENT == "MIRI":
     BKD_WIDTH = 15
     TOP_MARGIN = 10
     N_REF = 4
+    Y_CENTER = 36
     
     GAIN = 3.1
     NONLINEAR_FILE = REF_DIR + "jwst_miri_linearity_0032.fits"
@@ -54,7 +55,7 @@ elif INSTRUMENT == "NIRCAM":
     TOP_MARGIN = N_REF
     
     GAIN = 1.82
-    X_CENTER = 33    
+    Y_CENTER = 33    
     BKD_REG_TOP = [N_REF, N_REF + 7]    
 
     RESET_FILE = None
