@@ -2,6 +2,7 @@ import astropy.io.fits
 import matplotlib.pyplot as plt
 import _cupy_numpy as np
 import scipy.interpolate
+import numexpr as ne
 import time
 import sys
 import os.path
@@ -123,7 +124,8 @@ def get_slopes_initial(after_gain, read_noise):
         ratio_estimate[ratio_estimate < 1e-6] = 1e-6
         l = np.arccosh(1 + ratio_estimate/2)[:, :, np.newaxis]
 
-        weights = -R[:,:,np.newaxis]**-2 * np.exp(l) * (1 - np.exp(-j*l)) * (np.exp(j*l - l*N) - np.exp(l)) / (np.exp(l) - 1)**2 / (np.exp(l) + np.exp(-l*N))
+        weights = -R[:,:,np.newaxis]**-2 * ne.evaluate("exp(l) * (1 - exp(-j*l)) * (exp(j*l - l*N) - exp(l)) / (exp(l) - 1)**2 / (exp(l) + exp(-l*N))")
+        #weights = -R[:,:,np.newaxis]**-2 * np.exp(l) * (1 - np.exp(-j*l)) * (np.exp(j*l - l*N) - np.exp(l)) / (np.exp(l) - 1)**2 / (np.exp(l) + np.exp(-l*N))
         weights[:,:,:BAD_GRPS] = 0
         signal_estimate[i] = np.sum(diff_array[i].transpose(1,2,0) * weights, axis=2) / np.sum(weights, axis=2)                
         error[i] = 1. / np.sqrt(np.sum(weights, axis=2))
@@ -162,7 +164,8 @@ def get_slopes(after_gain, read_noise, max_iter=50, sigma=5, bad_grps=0):
             ratio_estimate = signal_estimate[i]  / R**2
             ratio_estimate[ratio_estimate < 1e-6] = 1e-6
             l = np.arccosh(1 + ratio_estimate/2)[:, :, np.newaxis]
-            weights = -R[:,:,np.newaxis]**-2 * np.exp(l) * (1 - np.exp(-j*l)) * (np.exp(j*l - l*N) - np.exp(l)) / (np.exp(l) - 1)**2 / (np.exp(l) + np.exp(-l*N))
+            weights = -R[:,:,np.newaxis]**-2 * ne.evaluate("exp(l) * (1 - exp(-j*l)) * (exp(j*l - l*N) - exp(l)) / (exp(l) - 1)**2 / (exp(l) + exp(-l*N))")
+            #weights = -R[:,:,np.newaxis]**-2 * np.exp(l) * (1 - np.exp(-j*l)) * (np.exp(j*l - l*N) - np.exp(l)) / (np.exp(l) - 1)**2 / (np.exp(l) + np.exp(-l*N))
             #Find cosmic rays and other anomalies
             z_scores = (diff_array[i] - signal_estimate[i, np.newaxis]) / noise[i, np.newaxis]
             bad_mask[i] = np.absolute(z_scores) > sigma
