@@ -4,7 +4,6 @@ USE_GPU = False
 REF_DIR = os.path.expanduser("~/jwst_refs/")
 RIGHT_MARGIN_BKD = 5
 HIGH_ERROR = 1e10
-SUM_EXTRACT_WINDOW = 3
 OPT_EXTRACT_WINDOW = 5
 INSTRUMENT = "NIRCAM" #Change this
 
@@ -37,7 +36,7 @@ if INSTRUMENT == "MIRI":
     X_MAX = 275
     BKD_REG_TOP = [10, 25]
     BKD_REG_BOT = [-25, -10]
-    
+    SUM_EXTRACT_WINDOW = 3    
 
 elif INSTRUMENT == "NIRCAM":
     BAD_GRPS = 0
@@ -58,7 +57,8 @@ elif INSTRUMENT == "NIRCAM":
     
     GAIN = 1.82
     Y_CENTER = 33    
-    BKD_REG_TOP = [N_REF, N_REF + 7]    
+    BKD_REG_TOP = [N_REF, N_REF + 7]
+    SUM_EXTRACT_WINDOW = 6
 
     RESET_FILE = None
     FLAT_FILE = None    
