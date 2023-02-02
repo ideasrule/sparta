@@ -10,7 +10,7 @@ import scipy.linalg
 import os.path
 import pdb
 from multiprocessing import Pool
-from constants import HIGH_ERROR, TOP_MARGIN, X_MIN, X_MAX, SUM_EXTRACT_WINDOW, BAD_GRPS, BKD_REG_TOP, BKD_REG_BOT
+from constants import HIGH_ERROR, TOP_MARGIN, X_MIN, X_MAX, SUM_EXTRACT_WINDOW, BAD_GRPS, BKD_REG_TOP, BKD_REG_BOT, INSTRUMENT, FILTER, SUBARRAY
 from scipy.stats import median_abs_deviation
 from wave_sol import get_wavelengths
 
@@ -22,6 +22,7 @@ def simple_extract(image, err):
 def process_one(filename):
     print("Processing", filename)
     with fits.open(filename) as hdul:
+        assert(hdul[0].header["INSTRUME"] == INSTRUMENT and hdul[0].header["FILTER"] == FILTER and hdul[0].header["SUBARRAY"] == SUBARRAY)
         wavelengths = get_wavelengths(hdul[0].header["INSTRUME"], hdul[0].header["FILTER"])
         hdulist = [hdul[0], hdul["INT_TIMES"]]
     

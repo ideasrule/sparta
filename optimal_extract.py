@@ -7,7 +7,7 @@ import scipy.linalg
 import os.path
 import astropy.stats
 import pdb
-from constants import HIGH_ERROR, TOP_MARGIN, X_MIN, X_MAX, OPT_EXTRACT_WINDOW, BAD_GRPS, BKD_REG_TOP, BKD_REG_BOT, Y_CENTER
+from constants import HIGH_ERROR, TOP_MARGIN, X_MIN, X_MAX, OPT_EXTRACT_WINDOW, BAD_GRPS, BKD_REG_TOP, BKD_REG_BOT, Y_CENTER, INSTRUMENT, FILTER, SUBARRAY
 from scipy.stats import median_abs_deviation
 from wave_sol import get_wavelengths
 
@@ -85,6 +85,7 @@ P = get_profile()
 
 for filename in sys.argv[1:]:
     with fits.open(filename) as hdul:
+        assert(hdul[0].header["INSTRUME"] == INSTRUMENT and hdul[0].header["FILTER"] == FILTER and hdul[0].header["SUBARRAY"] == SUBARRAY)
         wavelengths = get_wavelengths(hdul[0].header["INSTRUME"], hdul[0].header["FILTER"])
         hdulist = [hdul[0], hdul["INT_TIMES"]]
 

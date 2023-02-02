@@ -8,6 +8,8 @@ OPT_EXTRACT_WINDOW = 5
 INSTRUMENT = "NIRCAM" #Change this
 
 if INSTRUMENT == "MIRI":
+    SUBARRAY = "SLITLESSPRISM"
+    FILTER = "P750L"
     BAD_GRPS = 5
     ROTATE = -1
     SKIP_SUPERBIAS = True
@@ -41,11 +43,8 @@ if INSTRUMENT == "MIRI":
 elif INSTRUMENT == "NIRCAM":
     BAD_GRPS = 0
     ROTATE = 0
-    SUBARR_SIZE = 64 #Change this
-    LEFT = 0
-    RIGHT = 2048 
-    TOP = 0
-    BOT = SUBARR_SIZE
+    SUBARRAY = "SUBGRISM64" #Change this
+    FILTER = "F444W" #Change this"
     
     SKIP_SUPERBIAS = False
     SKIP_FLAT = True
@@ -63,24 +62,34 @@ elif INSTRUMENT == "NIRCAM":
     RESET_FILE = None
     FLAT_FILE = None    
     MASK_FILE = REF_DIR + "jwst_nircam_mask_0063.fits"
-    SUPERBIAS_FILE = REF_DIR + "jwst_nircam_superbias_0058.fits"
     NONLINEAR_FILE = REF_DIR + "jwst_nircam_linearity_0052.fits"
     WCS_FILE = None
 
-    if SUBARR_SIZE == 256:
-        RNOISE_FILE = REF_DIR + "jwst_nircam_readnoise_0108.fits"
-        DARK_FILE = REF_DIR + "jwst_nircam_dark_0355.fits"
-        BKD_REG_BOT = [57, 253]
+    if FILTER == "F444W":
+        ONE_OVER_F_WINDOW_LEFT = 4
+        ONE_OVER_F_WINDOW_RIGHT = 600
+        X_MIN = 860
+        X_MAX = 1900
+    if FILTER == "F322W2":
         ONE_OVER_F_WINDOW_LEFT = 1894
         ONE_OVER_F_WINDOW_RIGHT = 2044
         X_MIN = 50
         X_MAX = 1590
 
-    if SUBARR_SIZE == 64:
-        RNOISE_FILE = REF_DIR + "jwst_nircam_readnoise_0110.fits"
+    if SUBARRAY == "SUBGRISM256":
+        SUBARR_SIZE = 256
+        RNOISE_FILE = REF_DIR + "jwst_nircam_readnoise_0157.fits"
+        DARK_FILE = REF_DIR + "jwst_nircam_dark_0355.fits"
+        SUPERBIAS_FILE = REF_DIR + "jwst_nircam_superbias_0141.fits"
+        BKD_REG_BOT = [57, 253]        
+    if SUBARRAY == "SUBGRISM64":
+        SUBARR_SIZE = 64
+        RNOISE_FILE = REF_DIR + "jwst_nircam_readnoise_0180.fits"
         DARK_FILE = REF_DIR + "jwst_nircam_dark_0364.fits"
+        SUPERBIAS_FILE = REF_DIR + "jwst_nircam_superbias_0145.fits"
         BKD_REG_BOT = [57, 64]
-        ONE_OVER_F_WINDOW_LEFT = 4
-        ONE_OVER_F_WINDOW_RIGHT = 600
-        X_MIN = 860
-        X_MAX = 1900
+        
+    LEFT = 0
+    RIGHT = 2048 
+    TOP = 0
+    BOT = SUBARR_SIZE

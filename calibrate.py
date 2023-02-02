@@ -9,7 +9,7 @@ import os.path
 import pdb
 import gc
 from scipy.ndimage import uniform_filter
-from constants import TOP_MARGIN, BAD_GRPS, LEFT, RIGHT, TOP, BOT, NONLINEAR_FILE, DARK_FILE, FLAT_FILE, RNOISE_FILE, RESET_FILE, MASK_FILE, GAIN, ROTATE, SKIP_SUPERBIAS, SUPERBIAS_FILE, SKIP_FLAT, SKIP_REF, SKIP_RESET, N_REF
+from constants import INSTRUMENT, FILTER, SUBARRAY, TOP_MARGIN, BAD_GRPS, LEFT, RIGHT, TOP, BOT, NONLINEAR_FILE, DARK_FILE, FLAT_FILE, RNOISE_FILE, RESET_FILE, MASK_FILE, GAIN, ROTATE, SKIP_SUPERBIAS, SUPERBIAS_FILE, SKIP_FLAT, SKIP_REF, SKIP_RESET, N_REF
 
 def get_mask():
     with astropy.io.fits.open(MASK_FILE) as hdul:
@@ -84,7 +84,6 @@ def subtract_dark(data, nframes, groupgap):
             dark = dark[-1]
             dq = dq[0,0]
     
-    print(dark.shape, dq.shape)
     #Make dark frame the right size
     if not (nframes == 1 and groupgap == 0):
         assert((nframes/2).is_integer())
@@ -235,7 +234,8 @@ def is_power_of_two(n):
 for filename in sys.argv[1:]:
     print("Processing", filename)
     hdul = astropy.io.fits.open(filename)
-
+    assert(hdul[0].header["INSTRUME"] == INSTRUMENT and hdul[0].header["FILTER"] == FILTER and hdul[0].header["SUBARRAY"] == SUBARRAY)
+    
     #Assumptions for dark current subtraction
     nframes = hdul[0].header["NFRAMES"]
     groupgap = hdul[0].header["GROUPGAP"]

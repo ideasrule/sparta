@@ -6,7 +6,7 @@ import pdb
 import scipy.optimize
 from multiprocessing import Pool
 from scipy.interpolate import RectBivariateSpline
-from constants import TOP_MARGIN, Y_CENTER
+from constants import TOP_MARGIN, Y_CENTER, INSTRUMENT, FILTER, SUBARRAY
 
 def fix_outliers(data, badpix):
     for r in range(TOP_MARGIN, data.shape[0]):
@@ -39,6 +39,7 @@ all_badpix = None
 
 for filename in sys.argv[1:]:
     with astropy.io.fits.open(filename) as hdul:
+        assert(hdul[0].header["INSTRUME"] == INSTRUMENT and hdul[0].header["FILTER"] == FILTER and hdul[0].header["SUBARRAY"] == SUBARRAY)
         data = hdul["SCI"].data
         error = hdul["ERR"].data
         for i in range(len(data)):

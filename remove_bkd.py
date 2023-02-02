@@ -70,6 +70,7 @@ def remove_bkd_miri(data, err):
 for filename in sys.argv[1:]:
     print(filename)
     hdul = astropy.io.fits.open(filename)
+    assert(hdul[0].header["INSTRUME"] == INSTRUMENT and hdul[0].header["FILTER"] == FILTER and hdul[0].header["SUBARRAY"] == SUBARRAY)
     if hdul[0].header["INSTRUME"] == "MIRI":
         data_no_bkd, err, bkd, err_bkd = remove_bkd_miri(
             hdul["SCI"].data, hdul["ERR"].data)
