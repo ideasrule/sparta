@@ -96,33 +96,21 @@ for filename in sys.argv[1:]:
             data[:TOP_MARGIN] = 0
 
             s = np.s_[Y_CENTER - OPT_EXTRACT_WINDOW : Y_CENTER + OPT_EXTRACT_WINDOW + 1, X_MIN : X_MAX]
-
-            if "SCI_NO_BKD" in hdul:
-                im = hdul["SCI_NO_BKD"].data[i][s]
-                bkd_im = hdul["BKD"].data[i][s]
-            else:                
-                bkd_rows = np.vstack([
-                    data[BKD_REG_TOP[0]:BKD_REG_TOP[1]],
-                    data[BKD_REG_BOT[0]:BKD_REG_BOT[1]]])
-                bkd_rows = astropy.stats.sigma_clip(bkd_rows, axis=1)
-                bkd = np.ma.mean(bkd_rows, axis=0)
-                im = hdul["SCI"].data[i][s] - bkd
-                bkd_im = hdul["SCI"].data[i][s]*0 + bkd
-
+          
             spectrum, variance, z_scores, simple_spectrum = optimal_extract(
-                im,
-                bkd_im,
+                hdul["SCI"].data[i][s],
+                hdul["BKD"].data[i][s],
                 hdul["DQ"].data[i][s] != 0,
                 hdul["RNOISE"].data[s],
                 hdul[0].header["NGROUPS"] - BAD_GRPS,
                 P)
-            
+            bkd = hdul["BKD"].data[i][s].mean(axis=0)
             hdulist.append(fits.BinTableHDU.from_columns([
                 fits.Column(name="WAVELENGTH", format="D", unit="um", array=wavelengths[X_MIN:X_MAX]),
                 fits.Column(name="FLUX", format="D", unit="Electrons/group", array=spectrum),
                 fits.Column(name="ERROR", format="D", unit="Electrons/group", array=np.sqrt(variance)),
                 fits.Column(name="SIMPLE FLUX", format="D", unit="Electrons/group", array=simple_spectrum),
-                fits.Column(name="BKD", format="D", unit="Electrons/group", array=np.mean(bkd_im, axis=0))
+                fits.Column(name="BKD", format="D", unit="Electrons/group", array=bkd)
             ]))
 
             if i == 20: 
