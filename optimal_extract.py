@@ -5,33 +5,13 @@ import numpy as np
 from numpy.polynomial.chebyshev import chebval
 import scipy.linalg
 import os.path
+import astropy.stats
 import pdb
-from constants import HIGH_ERROR, LEFT_MARGIN, EXTRACT_Y_MIN, EXTRACT_Y_MAX, OPT_EXTRACT_WINDOW, SLITLESS_TOP, SLITLESS_BOT, BAD_GRPS, WCS_FILE, BKD_WIDTH
+from constants import HIGH_ERROR, TOP_MARGIN, X_MIN, X_MAX, OPT_EXTRACT_WINDOW, BAD_GRPS, BKD_REG_TOP, BKD_REG_BOT, Y_CENTER
 from scipy.stats import median_abs_deviation
+from wave_sol import get_wavelengths
 
-def fit_spectrum(image_row, spectrum, weights, num_ord=5):
-    cols = np.arange(len(spectrum))
-    xs = (cols - np.mean(cols))/len(cols) * 2
-    A = []
-    for o in range(num_ord):
-        cheby_coeffs = np.zeros(o + 1)
-        cheby_coeffs[o] = 1
-        cheby = chebval(xs, cheby_coeffs)
-        A.append(spectrum * cheby)
-
-    A = np.array(A).T
-    Aw = A * np.sqrt(weights[:, np.newaxis])
-    Bw = image_row * np.sqrt(weights)
-    coeffs, residuals, rank, s = scipy.linalg.lstsq(Aw, Bw)    
-    predicted = Aw.dot(coeffs)
-    smoothed_profile = chebval(xs, coeffs)
-    #plt.plot(image_row)
-    #plt.plot(predicted / np.sqrt(weights))
-    #plt.show()
-    
-    return smoothed_profile
-
-def horne_iteration(image, bkd, spectrum, M, V, badpix, flat_err, read_noise, n_groups_used, smoothed_profile, sigma=4):
+def horne_iteration(image, bkd, spectrum, M, V, badpix, read_noise, n_groups_used, smoothed_profile, sigma=5):
     #N is the number of groups used, minus one
     V[image == 0] = HIGH_ERROR**2 
     cols = np.arange(image.shape[1])
@@ -40,7 +20,6 @@ def horne_iteration(image, bkd, spectrum, M, V, badpix, flat_err, read_noise, n_
     l = np.arccosh(1 + np.abs(model_image + bkd) / read_noise**2 / 2)
     N = n_groups_used - 1
     V = 1 / (read_noise**-2 * np.exp(l) * (-N*np.exp(-l*N) + np.exp(2*l)*N + np.exp(l-l*N)*(2+N) - np.exp(l)*(2+N)) / (np.exp(l) - 1)**3 / (np.exp(-l*N) + np.exp(l)))
-    V += ((model_image + bkd) * flat_err)**2
     V[badpix] = HIGH_ERROR**2
 
     #plt.figure(0, figsize=(18,3))
@@ -64,7 +43,7 @@ def horne_iteration(image, bkd, spectrum, M, V, badpix, flat_err, read_noise, n_
     
     return spectrum, spectrum_variance, V, M, z_scores
 
-def optimal_extract(image, bkd, badpix, flat_err, read_noise, n_groups_used, P, max_iter=10):
+def optimal_extract(image, bkd, badpix, read_noise, n_groups_used, P, max_iter=10):
     #plt.imshow(image, aspect='auto', vmin=0, vmax=20)
     #plt.show()
     
@@ -80,7 +59,7 @@ def optimal_extract(image, bkd, badpix, flat_err, read_noise, n_groups_used, P, 
     counter = 0
     
     while True:        
-        spectrum, spectrum_variance, V, new_M, z_scores = horne_iteration(image, bkd, spectrum, M, V, badpix, flat_err, read_noise, n_groups_used, P)
+        spectrum, spectrum_variance, V, new_M, z_scores = horne_iteration(image, bkd, spectrum, M, V, badpix, read_noise, n_groups_used, P)
         #plt.figure(figsize=(16,16))
         #plt.imshow(z_scores, vmin=-10, vmax=10)
         #plt.figure()
@@ -92,78 +71,61 @@ def optimal_extract(image, bkd, badpix, flat_err, read_noise, n_groups_used, P, 
     print("Final std of z_scores (should be around 1)", np.std(z_scores[M]))
     return spectrum, spectrum_variance, z_scores, simple_spectrum
 
-def get_wavelengths():
-    with fits.open(WCS_FILE) as hdul:
-        all_ys = np.arange(SLITLESS_TOP, SLITLESS_BOT)
-        wavelengths = np.interp(all_ys,
-                                (hdul[0].header["IMYSLTL"] + hdul[1].data["Y_CENTER"] - 1)[::-1],
-                                hdul[1].data["WAVELENGTH"][::-1])
-        return wavelengths
-
 def get_profile(filename="median_image.npy"):
-    median_image = np.load(filename)[EXTRACT_Y_MIN:EXTRACT_Y_MAX, 36-OPT_EXTRACT_WINDOW : 36 + OPT_EXTRACT_WINDOW + 1]
-    median_spectrum = np.sum(median_image, axis=1)
-    P = median_image / median_spectrum[:,np.newaxis]
-    #plt.imshow(P, aspect='auto')
-    #plt.show()
-    
-    '''#Smooth profile
-    rows = np.arange(P.shape[0])
-    xs = rows / np.mean(rows) - 1
-    for c in range(P.shape[1]):
-        coeffs = np.polyfit(xs, P[:,c], 7)
-        #plt.plot(P[:,c])
-        P[:,c] = np.polyval(coeffs, xs)
-        #plt.plot(P[:,c])
-        #plt.show()'''
-    
+    median_image = np.load(filename)[Y_CENTER - OPT_EXTRACT_WINDOW : Y_CENTER + OPT_EXTRACT_WINDOW + 1, X_MIN : X_MAX]
+    median_spectrum = np.sum(median_image, axis=0)
+    P = median_image / median_spectrum       
     P[P < 0] = 0
-    P /= np.sum(P, axis=1)[:,np.newaxis]
+    P /= np.sum(P, axis=0)
     return P
 
 
 print("Applying optimal extraction")
 P = get_profile()    
 
-#filename = sys.argv[1]
-
 for filename in sys.argv[1:]:
     with fits.open(filename) as hdul:
-        wavelengths = get_wavelengths()
+        wavelengths = get_wavelengths(hdul[0].header["INSTRUME"], hdul[0].header["FILTER"])
         hdulist = [hdul[0], hdul["INT_TIMES"]]
 
         for i in range(len(hdul["SCI"].data)):
             print("Processing integration", i)
 
-            data = hdul["SCI"].data[i][EXTRACT_Y_MIN:EXTRACT_Y_MAX]
-            data[:, 0:LEFT_MARGIN] = 0
+            data = hdul["SCI"].data[i,:,X_MIN:X_MAX]
+            err = hdul["ERR"].data[i,:,X_MIN:X_MAX]
+            data[:TOP_MARGIN] = 0
 
-            bkd_cols = np.hstack([data[:, 10:25], data[:,47:62]])
-            #bkd_cols = data[:,-15:]
-            bkd = np.mean(bkd_cols, axis=1)
-            profile = np.sum(data, axis=0)
-            trace_loc = np.argmax(profile)
-            s = np.s_[EXTRACT_Y_MIN:EXTRACT_Y_MAX, trace_loc - OPT_EXTRACT_WINDOW : trace_loc + OPT_EXTRACT_WINDOW + 1]
+            s = np.s_[Y_CENTER - OPT_EXTRACT_WINDOW : Y_CENTER + OPT_EXTRACT_WINDOW + 1, X_MIN : X_MAX]
+
+            if "SCI_NO_BKD" in hdul:
+                im = hdul["SCI_NO_BKD"].data[i][s]
+                bkd_im = hdul["BKD"].data[i][s]
+            else:                
+                bkd_rows = np.vstack([
+                    data[BKD_REG_TOP[0]:BKD_REG_TOP[1]],
+                    data[BKD_REG_BOT[0]:BKD_REG_BOT[1]]])
+                bkd_rows = astropy.stats.sigma_clip(bkd_rows, axis=1)
+                bkd = np.ma.mean(bkd_rows, axis=0)
+                im = hdul["SCI"].data[i][s] - bkd
+                bkd_im = hdul["SCI"].data[i][s]*0 + bkd
 
             spectrum, variance, z_scores, simple_spectrum = optimal_extract(
-                (hdul["SCI"].data[i][s] - bkd[:,np.newaxis]).T,
-                (hdul["SCI"].data[i][s]*0 + bkd[:,np.newaxis]).T,
-                hdul["DQ"].data[i][s].T != 0,
-                hdul["FLATERR"].data[s].T,
-                hdul["RNOISE"].data[s].T,
+                im,
+                bkd_im,
+                hdul["DQ"].data[i][s] != 0,
+                hdul["RNOISE"].data[s],
                 hdul[0].header["NGROUPS"] - BAD_GRPS,
-                P.T
-            )
-
+                P)
+            
             hdulist.append(fits.BinTableHDU.from_columns([
-                fits.Column(name="WAVELENGTH", format="D", unit="um", array=wavelengths[EXTRACT_Y_MIN:EXTRACT_Y_MAX]),
+                fits.Column(name="WAVELENGTH", format="D", unit="um", array=wavelengths[X_MIN:X_MAX]),
                 fits.Column(name="FLUX", format="D", unit="Electrons/group", array=spectrum),
                 fits.Column(name="ERROR", format="D", unit="Electrons/group", array=np.sqrt(variance)),
                 fits.Column(name="SIMPLE FLUX", format="D", unit="Electrons/group", array=simple_spectrum),
-                fits.Column(name="BKD", format="D", unit="Electrons/group", array=bkd)
+                fits.Column(name="BKD", format="D", unit="Electrons/group", array=np.mean(bkd_im, axis=0))
             ]))
 
-            if i == 20: #int(len(hdul["SCI"].data)/2):
+            if i == 20: 
                 z_scores_filename = "zscores_{}_" + filename[:-4] + "png"
                 plt.clf()
                 plt.figure(0, figsize=(18,3))

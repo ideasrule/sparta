@@ -22,16 +22,18 @@ for filename in sys.argv[1:]:
     data[:,:N_REF] = 0
     subtracted = np.zeros(data.shape)
     subtracted[:,:,:] = np.nanmedian(data[:,:,ONE_OVER_F_WINDOW_LEFT:ONE_OVER_F_WINDOW_RIGHT], axis=2)[:,:,np.newaxis]
-    data -= subtracted
+    data_no_bkd = data - subtracted
 
     bkd_rows = np.concatenate((data[:,BKD_REG_TOP[0]:BKD_REG_TOP[1]],
                                data[:,BKD_REG_BOT[0]:BKD_REG_BOT[1]]),
                               axis=1)
     bkd = np.nanmedian(bkd_rows, axis=1)
     subtracted += bkd[:,np.newaxis,:]
-    data -= bkd[:,np.newaxis,:]
+    data_no_bkd -= bkd[:,np.newaxis,:]
     
-    bkd_hdu = astropy.io.fits.ImageHDU(subtracted, name="BKD")    
+    bkd_hdu = astropy.io.fits.ImageHDU(subtracted, name="BKD")
+    no_bkd_hdu = astropy.io.fits.ImageHDU(data_no_bkd, name="SCI_NO_BKD")
     hdul.append(bkd_hdu)
+    hdul.append(no_bkd_hdu)
     hdul.writeto("cleaned_{}".format(filename), overwrite=True)
     hdul.close()
