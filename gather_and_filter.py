@@ -98,8 +98,15 @@ def reject_cols(data, errors, wavelengths, threshold=1.2):
             print("Bad col", i, ratio)
     return data[:,~is_bad], errors[:,~is_bad], wavelengths[~is_bad]
 
+def clean_pixels(data, filter_width=21, sigma=5):
+    rows = np.arange(data.shape[0])
+    for c in range(data.shape[1]):
+        lc = data[:,c]
+        detrended = lc - median_filter(lc, filter_width)
+        outliers = astropy.stats.sigma_clip(detrended, sigma).mask
+        data[:,c] = np.interp(rows, rows[~outliers], lc[~outliers])
+    return data
 
-    
 data, errors, bkd, times, wavelengths, section_edges = read_data(sys.argv[1:])
 
 output = {"uncut_wavelengths": wavelengths,
@@ -128,6 +135,7 @@ output.update({"uncut_y": y,
 data, errors, bkd, times, x, y = reject_rows(data, errors, bkd, times, x, y)
 #data, errors, wavelengths = reject_cols(data, errors, wavelengths)
 #data = repair_rows(data)
+clean_pixels(data)
 
 output.update({"wavelengths": wavelengths,
           "times": times,
