@@ -10,7 +10,7 @@ import scipy.linalg
 import os.path
 import pdb
 from multiprocessing import Pool
-from constants import HIGH_ERROR, TOP_MARGIN, X_MIN, X_MAX, SUM_EXTRACT_WINDOW, BAD_GRPS, BKD_REG_TOP, BKD_REG_BOT, INSTRUMENT, FILTER, SUBARRAY
+from constants import HIGH_ERROR, TOP_MARGIN, X_MIN, X_MAX, SUM_EXTRACT_WINDOW, BAD_GRPS, BKD_REG_TOP, BKD_REG_BOT, INSTRUMENT, FILTER, SUBARRAY, Y_CENTER
 from scipy.stats import median_abs_deviation
 from wave_sol import get_wavelengths
 

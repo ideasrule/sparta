@@ -39,6 +39,7 @@ all_badpix = None
 
 for filename in sys.argv[1:]:
     with astropy.io.fits.open(filename) as hdul:
+        print(filename)
         assert(hdul[0].header["INSTRUME"] == INSTRUMENT and hdul[0].header["FILTER"] == FILTER and hdul[0].header["SUBARRAY"] == SUBARRAY)
         data = hdul["SCI"].data
         error = hdul["ERR"].data
@@ -63,7 +64,7 @@ fix_outliers(template, np.isnan(template))
 
 
 def do_one(i):
-    bounds = ((-0.4,0.4), (-0.2,0.2), (0.98, 1.02))
+    bounds = ((-0.4,0.4), (-0.2,0.2), (0.95, 1.02))
     result = scipy.optimize.minimize(chi_sqr, [0,0,1], args=(all_data[i], all_error[i], template), bounds=bounds, method="Nelder-Mead")
 
     hit_bounds = False

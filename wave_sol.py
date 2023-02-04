@@ -1,4 +1,5 @@
 from astropy.io import fits
+import os.path
 import numpy as np
 from constants import WCS_FILE, LEFT, RIGHT
 
@@ -14,6 +15,7 @@ def get_wavelengths(instrument, instrument_filter):
             return wavelengths
     if instrument == "NIRCAM":
         print("WARNING: wavelength solution to be implemented.  Using hard-coded wavelengths.")
-        wavelengths = np.load("{}_wavelength_solution.npy".format(instrument_filter))
+        script_dir = os.path.dirname(os.path.realpath(__file__))
+        wavelengths = np.load("{}/{}_wavelength_solution.npy".format(script_dir, instrument_filter))
         return wavelengths
         
