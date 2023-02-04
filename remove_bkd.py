@@ -54,7 +54,7 @@ def remove_bkd_miri(data, err):
             data[i,BKD_REG_TOP[0]:BKD_REG_TOP[1]],
             data[i,BKD_REG_BOT[0]:BKD_REG_BOT[1]]])
 
-        bkd_rows = astropy.stats.sigma_clip(bkd_rows, axis=1)
+        bkd_rows = astropy.stats.sigma_clip(bkd_rows, axis=0)
         bkd_err_rows = np.vstack([
             err[i,BKD_REG_TOP[0]:BKD_REG_TOP[1]],
             err[i,BKD_REG_BOT[0]:BKD_REG_BOT[1]]])
