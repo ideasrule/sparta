@@ -34,12 +34,8 @@ def horne_iteration(image, bkd, spectrum, M, V, badpix, read_noise, n_groups_use
     spectrum = np.sum(smoothed_profile * image / V, axis=0) / np.sum(smoothed_profile**2 / V, axis=0)
     spectrum_variance = np.sum(smoothed_profile, axis=0) / np.sum(smoothed_profile**2 / V, axis=0)
 
-    #import pdb
-    #pdb.set_trace()
-    '''plt.imshow(z_scores, vmin=-5, vmax=5, aspect='auto')
-    plt.figure()
-    plt.imshow(M)
-    plt.show()'''
+    #plt.imshow(z_scores, vmin=-5, vmax=5, aspect='auto')
+    #plt.show()
     
     return spectrum, spectrum_variance, V, M, z_scores
 
@@ -79,9 +75,23 @@ def get_profile(filename="median_image.npy"):
     P /= np.sum(P, axis=0)
     return P
 
+def get_positions(filename="positions.txt"):
+    y_positions = {}
+    
+    for line in open(filename):
+        if line[0] == '#': continue
+        elements = line.split()
+        filename = elements[0]
+        integration = int(elements[1])
+        y = float(elements[2])
+        if np.isnan(y):
+            y = 0
+        y_positions[(filename, integration)] = y
+    return y_positions
 
 print("Applying optimal extraction")
-P = get_profile()    
+P = get_profile()
+y_positions = get_positions()
 
 for filename in sys.argv[1:]:
     with fits.open(filename) as hdul:
@@ -97,14 +107,19 @@ for filename in sys.argv[1:]:
             data[:TOP_MARGIN] = 0
 
             s = np.s_[Y_CENTER - OPT_EXTRACT_WINDOW : Y_CENTER + OPT_EXTRACT_WINDOW + 1, X_MIN : X_MAX]
-          
+
+            #Shift profile
+            shift = y_positions[(filename, i)]
+            rows = np.arange(P.shape[0])
+            shifted_P = scipy.interpolate.interp1d(rows, P.T, kind="cubic", bounds_error=False, fill_value=(P[0], P[-1]))(rows + shift).T                       
+            
             spectrum, variance, z_scores, simple_spectrum = optimal_extract(
                 hdul["SCI"].data[i][s],
                 hdul["BKD"].data[i][s],
                 hdul["DQ"].data[i][s] != 0,
                 hdul["RNOISE"].data[s],
                 hdul[0].header["NGROUPS"] - BAD_GRPS,
-                P)
+                shifted_P)
             bkd = hdul["BKD"].data[i][s].mean(axis=0)
             hdulist.append(fits.BinTableHDU.from_columns([
                 fits.Column(name="WAVELENGTH", format="D", unit="um", array=wavelengths[X_MIN:X_MAX]),
