@@ -86,7 +86,7 @@ def subtract_dark(data, nframes, groupgap):
     
     #Make dark frame the right size
     if not (nframes == 1 and groupgap == 0):
-        assert((nframes/2).is_integer())
+        assert(nframes == 1 or (nframes/2).is_integer())
         total_frames = nframes + groupgap
         indices = np.arange(dark.shape[0]) % total_frames
         include = indices < nframes
@@ -286,6 +286,7 @@ for filename in sys.argv[1:]:
         signal, error, flat_err = apply_flat(signal, error)
         
     per_int_mask = per_int_mask | mask
+    per_int_mask = per_int_mask | np.isnan(signal)
     sci_hdu = astropy.io.fits.ImageHDU(np.cpu(signal), name="SCI")
     err_hdu = astropy.io.fits.ImageHDU(np.cpu(error), name="ERR")
     dq_hdu = astropy.io.fits.ImageHDU(np.cpu(per_int_mask), name="DQ")
