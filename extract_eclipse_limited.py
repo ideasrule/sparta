@@ -14,13 +14,13 @@ from emcee_methods import get_batman_params, run_emcee
 import time
 import corner
 
-def correct_lc(wavelengths, fluxes, errors, bjds, y, t0, per, rp, a, inc,
+def correct_lc(start_wave, end_wave, fluxes, errors, bjds, y, t0, t_secondary, per, rp, a, inc,
                limb_dark_coeffs, fp, output_file_prefix="chain",
                nwalkers=100, burn_in_runs=100, production_runs=1000, output_txt="result.txt"):
     print("Median is", np.median(fluxes))
     fluxes /= np.median(fluxes)
 
-    initial_batman_params = get_batman_params(t0, per, rp, a, inc, limb_dark_coeffs, limb_dark_law="quadratic")
+    initial_batman_params = get_batman_params(t0, per, rp, a, inc, limb_dark_coeffs, limb_dark_law="quadratic", t_secondary=t_secondary)
     transit_model = batman.TransitModel(initial_batman_params, bjds, transittype='secondary')
     
     #First guess for PLD corrections based on PCA components
@@ -32,7 +32,7 @@ def correct_lc(wavelengths, fluxes, errors, bjds, y, t0, per, rp, a, inc,
 
     #All arguments, aside from the parameters, that will be passed to lnprob
     w = 2*np.pi/per
-    lnprob_args = (initial_batman_params, transit_model, bjds, fluxes, errors, y, t0)
+    lnprob_args = (initial_batman_params, transit_model, bjds, fluxes, errors, y)
     
     _, chain, lnprobs = run_emcee(lnprob, lnprob_args, initial_params, nwalkers, output_file_prefix, burn_in_runs, production_runs)
     length = len(chain)
@@ -42,7 +42,7 @@ def correct_lc(wavelengths, fluxes, errors, bjds, y, t0, per, rp, a, inc,
     best_lnprob = lnprobs[np.argmax(lnprobs)]    
     
     print("Best step", best_step)
-    _, residuals = lnprob(best_step, *lnprob_args, plot_result=True, return_residuals=True, wavelength=np.mean(wavelengths))
+    _, residuals = lnprob(best_step, *lnprob_args, plot_result=True, return_residuals=True, wavelength=(start_wave + end_wave)/2)
     
     for i in range(chain.shape[1]):
         print_stats(chain[:,i], labels[i])
@@ -53,7 +53,7 @@ def correct_lc(wavelengths, fluxes, errors, bjds, y, t0, per, rp, a, inc,
 
     
     with open(output_txt, "a") as f:
-        f.write("{} {} ".format(wavelengths[0], wavelengths[-1]))
+        f.write("{} {} ".format(start_wave, end_wave))
         for var in (chain[:,0],):
             f.write("{} {} {} ".format(np.median(var), np.median(var) - np.percentile(var, 16), np.percentile(var, 84) - np.median(var)))
         f.write("{}".format(best_lnprob))
@@ -73,7 +73,7 @@ parser.add_argument("--white-lc", type=str, default="white_lightcurve.txt", help
 
 args = parser.parse_args()
 
-bjds, fluxes, flux_errors, wavelengths, y, x = get_data_pickle(args.start_wave, args.end_wave, args.exclude_beginning)
+bjds, fluxes, flux_errors, wavelengths, y, _ = get_data_pickle(args.start_wave, args.end_wave, args.exclude_beginning)
 
 bin_size = args.bin_size
 binned_fluxes = bin_data(fluxes, bin_size)
@@ -85,9 +85,10 @@ binned_y = bin_data(y, bin_size)
 
 #Divide by white systematics
 white_bjds, white_flux, white_err, white_astro = np.loadtxt(args.white_lc, usecols=(0,1,2,4), unpack=True)
-'''binned_fluxes /= np.interp(binned_bjds,
+binned_fluxes /= np.interp(binned_bjds,
                            bin_data(white_bjds, bin_size),
-                           bin_data(white_flux / white_astro, bin_size))'''
+                           bin_data(white_flux / white_astro, bin_size))
+print(len(binned_bjds), len(white_flux))
 
 delta_t = binned_bjds - np.median(binned_bjds)
 coeffs = np.polyfit(delta_t, binned_y, 1)
@@ -101,6 +102,6 @@ config = ConfigParser()
 config.read(args.config_file)
 items = dict(config.items(default_section_name))
 
-correct_lc(wavelengths, binned_fluxes, binned_errors, binned_bjds, binned_y - smoothed_binned_y, float(items["t0"]), float(items["per"]),
+correct_lc(args.start_wave/1000, args.end_wave/1000, binned_fluxes, binned_errors, binned_bjds, binned_y - smoothed_binned_y, float(items["t0"]), float(items["t_secondary"]), float(items["per"]),
            float(items["rp"]), float(items["a"]), float(items["inc"]), eval(items["limb_dark_coeffs"]), float(items["fp"]),
            args.output, args.num_walkers, args.burn_in_runs, args.production_runs)

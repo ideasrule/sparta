@@ -14,13 +14,13 @@ from emcee_methods import get_batman_params, run_emcee
 import time
 import corner
 
-def correct_lc(wavelengths, fluxes, errors, bjds, y, t0, per, rp, a, inc,
+def correct_lc(wavelengths, fluxes, errors, bjds, y, t0, t_secondary, per, rp, a, inc,
                limb_dark_coeffs, fp, output_file_prefix="chain",
                nwalkers=100, burn_in_runs=100, production_runs=1000, output_txt="white_light_result.txt"):
     print("Median is", np.median(fluxes))
     fluxes /= np.median(fluxes)
 
-    initial_batman_params = get_batman_params(t0, per, rp, a, inc, limb_dark_coeffs, limb_dark_law="quadratic")
+    initial_batman_params = get_batman_params(t0, per, rp, a, inc, limb_dark_coeffs, limb_dark_law="quadratic", t_secondary=t_secondary)
     transit_model = batman.TransitModel(initial_batman_params, bjds, transittype='secondary')
     
     #First guess for PLD corrections based on PCA components
@@ -32,7 +32,7 @@ def correct_lc(wavelengths, fluxes, errors, bjds, y, t0, per, rp, a, inc,
 
     #All arguments, aside from the parameters, that will be passed to lnprob
     w = 2*np.pi/per
-    lnprob_args = (initial_batman_params, transit_model, bjds, fluxes, errors, y, t0)
+    lnprob_args = (initial_batman_params, transit_model, bjds, fluxes, errors, y, t_secondary)
     
     _, chain, lnprobs = run_emcee(lnprob, lnprob_args, initial_params, nwalkers, output_file_prefix, burn_in_runs, production_runs)
     length = len(chain)
@@ -65,7 +65,7 @@ parser.add_argument("config_file", help="Contains transit parameters")
 parser.add_argument("start_wave", type=float)
 parser.add_argument("end_wave", type=float)
 parser.add_argument("-b", "--bin-size", type=int, default=1, help="Bin size to use on data")
-parser.add_argument("--burn-in-runs", type=int, default=1000, help="Number of burn in runs")
+parser.add_argument("--burn-in-runs", type=int, default=2000, help="Number of burn in runs")
 parser.add_argument("--production-runs", type=int, default=1000, help="Number of production runs")
 parser.add_argument("--num-walkers", type=int, default=100, help="Number of walkers in the ensemble sampler")
 parser.add_argument("-o", "--output", type=str, default="chain", help="Directory to store the chain and lnprob arrays")
@@ -73,7 +73,7 @@ parser.add_argument("-e", "--exclude-beginning", type=int, default=1122, help="H
 
 args = parser.parse_args()
 
-bjds, fluxes, flux_errors, wavelengths, y, x = get_data_pickle(args.start_wave, args.end_wave, args.exclude_beginning)
+bjds, fluxes, flux_errors, wavelengths, y, _ = get_data_pickle(args.start_wave, args.end_wave, args.exclude_beginning)
 
 bin_size = args.bin_size
 binned_fluxes = bin_data(fluxes, bin_size)
@@ -95,6 +95,6 @@ config = ConfigParser()
 config.read(args.config_file)
 items = dict(config.items(default_section_name))
 
-correct_lc(wavelengths, binned_fluxes, binned_errors, binned_bjds, binned_y - smoothed_binned_y, float(items["t0"]), float(items["per"]),
+correct_lc(wavelengths, binned_fluxes, binned_errors, binned_bjds, binned_y - smoothed_binned_y, float(items["t0"]), float(items["t_secondary"]), float(items["per"]),
            float(items["rp"]), float(items["a"]), float(items["inc"]), eval(items["limb_dark_coeffs"]), float(items["fp"]),
            args.output, args.num_walkers, args.burn_in_runs, args.production_runs)
