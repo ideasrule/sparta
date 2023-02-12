@@ -28,8 +28,8 @@ def chi_sqr(params, image, error, template, left=10, right=-10, top=Y_CENTER-10,
     
 #chi_sqr([0.1, 20], data[0], template)
 
-all_data = None
-all_error = None
+all_data = []
+all_error = []
 all_filenames = []
 all_int_nums = []
 all_y = []
@@ -50,12 +50,13 @@ for filename in sys.argv[1:]:
             all_data = data
             all_error = error
         else:
-            all_data = np.append(all_data, data, axis=0)
-            all_error = np.append(all_error, error, axis=0)
+            all_data += list(data)
+            all_error += list(error)
             
         all_filenames += len(data) * [filename]
         all_int_nums += list(np.arange(data.shape[0]))
 
+all_data = np.array(all_data)        
 all_error = np.array(all_error)
 all_error[np.isnan(all_error)] = np.inf
 print(len(all_data), len(all_filenames), len(all_int_nums))
