@@ -23,7 +23,7 @@ cp ../sparta/hd189733b/* .
 This outputs cleaned_rateints_jw*.fits files.
 
 6. Calculate the x and y positions of the trace for each integration of each segment, outputting them into positions.txt:
-```python ../sparta/get_positions.py rateints_jw*.fits```
+```python ../sparta/get_positions.py cleaned_rateints_jw*.fits```
 
 7. Extract the spectrum.
 
