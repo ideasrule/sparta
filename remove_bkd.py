@@ -8,11 +8,13 @@ from constants import *
 def remove_bkd_nircam(data, err, dq):
     data = np.copy(data)
     err = np.copy(err)
+    dq = np.copy(dq)
     
     #Modifies data and err (outlier rejection) before estimating bkd
     for i in range(len(data)):
         #Fix outliers
         mask = np.logical_or(np.isnan(data[i]), dq[i] > 0)
+        dq[i] |= mask
 
         xs = np.arange(data[i].shape[1])
         for y in range(N_REF, data[i].shape[0]):
@@ -20,7 +22,7 @@ def remove_bkd_nircam(data, err, dq):
                 pdb.set_trace()
             data[i,y] = np.interp(xs, xs[~mask[y]], data[i,y][~mask[y]])
             err[i,y] = np.interp(xs, xs[~mask[y]], err[i,y][~mask[y]])
-   
+
     data[:,:N_REF] = 0
     subtracted = np.zeros(data.shape)
     var_subtracted = np.zeros(data.shape)
@@ -42,10 +44,10 @@ def remove_bkd_nircam(data, err, dq):
     subtracted += bkd[:,np.newaxis,:]
     var_subtracted += bkd_var[:,np.newaxis,:]
     data_no_bkd -= bkd[:,np.newaxis,:]
-    return data_no_bkd, err, subtracted, np.sqrt(var_subtracted)
+    return data_no_bkd, err, subtracted, np.sqrt(var_subtracted), dq
 
 
-def remove_bkd_miri(data, err):
+def remove_bkd_miri(data, err, dq):
     bkd_im = np.zeros(data.shape)
     bkd_var_im = np.zeros(err.shape)
         
@@ -65,21 +67,22 @@ def remove_bkd_miri(data, err):
         bkd_im[i] = bkd
         bkd_var_im[i] = bkd_var
         
-    return data - bkd_im, err, bkd_im, np.sqrt(bkd_var_im)
+    return data - bkd_im, err, bkd_im, np.sqrt(bkd_var_im), dq
 
 for filename in sys.argv[1:]:
     print(filename)
     hdul = astropy.io.fits.open(filename)
     assert(hdul[0].header["INSTRUME"] == INSTRUMENT and hdul[0].header["FILTER"] == FILTER and hdul[0].header["SUBARRAY"] == SUBARRAY)
     if hdul[0].header["INSTRUME"] == "MIRI":
-        data_no_bkd, err, bkd, err_bkd = remove_bkd_miri(
-            hdul["SCI"].data, hdul["ERR"].data)
+        data_no_bkd, err, bkd, err_bkd, dq = remove_bkd_miri(
+            hdul["SCI"].data, hdul["ERR"].data, hdul["DQ"].data)
     elif hdul[0].header["INSTRUME"] == "NIRCAM":
-        data_no_bkd, err, bkd, err_bkd = remove_bkd_nircam(
+        data_no_bkd, err, bkd, err_bkd, dq = remove_bkd_nircam(
             hdul["SCI"].data, hdul["ERR"].data, hdul["DQ"].data)
         
     hdul["SCI"].data = data_no_bkd
     hdul["ERR"].data = err
+    hdul["DQ"].data = dq
     hdul.append(ImageHDU(bkd, name="BKD"))
     hdul.append(ImageHDU(err_bkd, name="BKD_ERR"))
     hdul.writeto("cleaned_{}".format(filename), overwrite=True)
