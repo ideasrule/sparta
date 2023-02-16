@@ -123,7 +123,7 @@ def lnprob_transit(params, initial_batman_params, transit_model, bjds,
     #now account for prior
     if (np.abs(params[0])) >= batman_params.per/4.0:
         return -np.inf
-    if tau <= 0 or tau > 0.1: return -np.inf
+    if tau <= 0 or tau > 0.9: return -np.inf
         
     if error_factor <= 0 or error_factor >= 5: return -np.inf
     if rp <= 0 or rp >= 1 or a_star <= 0 or b <= 0 or b >= 1: return -np.inf
@@ -133,8 +133,13 @@ def lnprob_transit(params, initial_batman_params, transit_model, bjds,
     systematics = Fstar * (1 + A*np.exp(-delta_t/tau) + y_coeff * y + m * (bjds - np.mean(bjds)))
     astro = transit_model.light_curve(batman_params)
     model = systematics * astro
+
+    phases = (bjds-batman_params.t0)/batman_params.per
+    phases -= np.round(np.median(phases))
     
     residuals = fluxes - model
+    #residuals[np.logical_and(phases > -0.0024, phases < 0.007)] = 0
+    
     result = -0.5*(np.sum(residuals**2/scaled_errors**2 - np.log(1.0/scaled_errors**2)))
 
     if plot_result:
@@ -147,8 +152,6 @@ def lnprob_transit(params, initial_batman_params, transit_model, bjds,
                     residuals[i] / Fstar))
                 
         binsize = len(fluxes) // 100
-        phases = (bjds-batman_params.t0)/batman_params.per
-        phases -= np.round(np.median(phases))
 
         plot_fit_and_residuals(phases, binsize, fluxes / systematics, astro)
         plt.figure()
@@ -173,7 +176,6 @@ def lnprob_transit_limited(params, batman_params, transit_model, bjds,
     batman_params = copy.deepcopy(batman_params)
     depth, error_factor, Fstar, A, tau, y_coeff, m = params
     
-    
     if Fstar <= 0:
         return -np.inf
 
@@ -196,6 +198,7 @@ def lnprob_transit_limited(params, batman_params, transit_model, bjds,
     phases = (bjds-batman_params.t0)/batman_params.per
     phases -= np.round(np.median(phases))
 
+    #residuals[np.logical_and(phases > -0.0024, phases < 0.007)] = 0
     result = -0.5*(np.sum(residuals**2/scaled_errors**2 - np.log(1.0/scaled_errors**2)))
 
     if plot_result:
@@ -382,13 +385,13 @@ def lnprob(params, initial_batman_params, transit_model, eclipse_model, bjds,
         
     if (np.abs(params[1])) >= batman_params.per/10.0:
         return -np.inf
-    
+
     if Fstar <= 0:
         return -np.inf
 
     if one_over_tau < 5 or one_over_tau > 100: return -np.inf
     tau = 1./one_over_tau
-    
+
     if Fp >= max_Fp: return -np.inf
     if error_factor <= 0 or error_factor >= 5: return -np.inf
     if rp <= 0 or rp >= 1 or a_star <= 0 or b <= 0 or b >= 1: return -np.inf
@@ -506,6 +509,8 @@ def lnprob_limited(params, batman_params, transit_model, eclipse_model, bjds,
     if rp <= 0 or rp >= 1: return -np.inf
 
     if one_over_tau < 5 or one_over_tau > 100: return -np.inf
+    batman_params.rp = rp
+    
     #if tau < 0.01 or tau > 1: return -np.inf
     #if tau_power <= 0 or tau_power > 3: return -np.inf
     tau = 1./one_over_tau
