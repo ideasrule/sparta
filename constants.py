@@ -68,13 +68,13 @@ elif INSTRUMENT == "NIRCAM":
     if FILTER == "F444W":
         ONE_OVER_F_WINDOW_LEFT = 4
         ONE_OVER_F_WINDOW_RIGHT = 600
-        X_MIN = 860
+        X_MIN = 821
         X_MAX = 1900
     if FILTER == "F322W2":
         ONE_OVER_F_WINDOW_LEFT = 1894
         ONE_OVER_F_WINDOW_RIGHT = 2044
         X_MIN = 50
-        X_MAX = 1590
+        X_MAX = 1645
 
     if SUBARRAY == "SUBGRISM256":
         SUBARR_SIZE = 256
