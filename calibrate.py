@@ -77,8 +77,7 @@ def apply_nonlinearity(data):
 def subtract_dark(data, nframes, groupgap):
     with astropy.io.fits.open(DARK_FILE) as hdul:
         dark = np.array(np.rot90(hdul[1].data, ROTATE, (-2,-1)), dtype=np.float64)
-        dq = np.rot90(hdul["DQ"].data, ROTATE, (-2,-1))
-
+        dq = np.array(np.rot90(hdul["DQ"].data, ROTATE, (-2,-1)))
         if dark.ndim == 4:
             print("Warning: skipping first {} integrations of dark".format(dark.shape[0] - 1))
             dark = dark[-1]
