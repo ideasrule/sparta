@@ -58,6 +58,8 @@ def correct_lc(start_wave, end_wave, fluxes, errors, bjds, y, t0, t_secondary, p
             f.write("{} {} {} ".format(np.median(var), np.median(var) - np.percentile(var, 16), np.percentile(var, 84) - np.median(var)))
         f.write("{}".format(best_lnprob))
         f.write("\n")
+
+    return chain, lnprobs
             
 parser = argparse.ArgumentParser(description="Extracts phase curve and transit information from light curves")
 parser.add_argument("config_file", help="Contains transit parameters")
@@ -102,6 +104,8 @@ config = ConfigParser()
 config.read(args.config_file)
 items = dict(config.items(default_section_name))
 
-correct_lc(args.start_wave/1000, args.end_wave/1000, binned_fluxes, binned_errors, binned_bjds, binned_y - smoothed_binned_y, float(items["t0"]), float(items["t_secondary"]), float(items["per"]),
+chain, lnprobs = correct_lc(args.start_wave/1000, args.end_wave/1000, binned_fluxes, binned_errors, binned_bjds, binned_y - smoothed_binned_y, float(items["t0"]), float(items["t_secondary"]), float(items["per"]),
            float(items["rp"]), float(items["a"]), float(items["inc"]), eval(items["limb_dark_coeffs"]), float(items["fp"]),
            args.output, args.num_walkers, args.burn_in_runs, args.production_runs)
+np.save("chain_{}_{}.npy".format(int(args.start_wave), int(args.end_wave)), chain)
+np.save("lnprobs_{}_{}.npy".format(int(args.start_wave), int(args.end_wave)), lnprobs)
