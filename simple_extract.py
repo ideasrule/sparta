@@ -121,8 +121,6 @@ def process_one(filename):
         output_hdul.writeto("x1d_" + os.path.basename(filename), overwrite=True)
     
 filenames = sys.argv[1:]
-process_one("cleaned_rateints_jw01274001001_04103_00001-seg004_nrcalong.fits")
-
 with Pool() as pool:
     pool.map(process_one, filenames)
     
