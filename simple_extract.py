@@ -94,10 +94,6 @@ def process_one(filename):
                 hdul["ERR"].data[i][s]            
             )
 
-            if i == 400:
-                plt.imshow(hdul["SCI"].data[i][s])
-                plt.show()
-            
             bkd = np.mean(hdul["BKD"].data[i][s], axis=0)
             bkd_var = np.mean(hdul["BKD_ERR"].data[i][s]**2, axis=0)
             variance += bkd_var * (2*SUM_EXTRACT_WINDOW + 1)**2
