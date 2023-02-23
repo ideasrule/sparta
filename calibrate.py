@@ -9,7 +9,7 @@ import os.path
 import pdb
 import gc
 from scipy.ndimage import uniform_filter
-from constants import INSTRUMENT, FILTER, SUBARRAY, TOP_MARGIN, BAD_GRPS, LEFT, RIGHT, TOP, BOT, NONLINEAR_FILE, DARK_FILE, FLAT_FILE, RNOISE_FILE, RESET_FILE, MASK_FILE, GAIN, ROTATE, SKIP_SUPERBIAS, SUPERBIAS_FILE, SKIP_FLAT, SKIP_REF, SKIP_RESET, N_REF
+from constants import INSTRUMENT, FILTER, SUBARRAY, TOP_MARGIN, BAD_GRPS, LEFT, RIGHT, TOP, BOT, NONLINEAR_FILE, DARK_FILE, FLAT_FILE, RNOISE_FILE, MASK_FILE, GAIN, ROTATE, SKIP_SUPERBIAS, SUPERBIAS_FILE, SKIP_FLAT, SKIP_REF, N_REF
 
 def get_mask():
     with astropy.io.fits.open(MASK_FILE) as hdul:
@@ -25,20 +25,6 @@ def subtract_superbias(data):
     superbias[np.isnan(superbias)] = 0
     return data - superbias
 
-def apply_reset(data):
-    after_reset = np.copy(data)
-    with astropy.io.fits.open(RESET_FILE) as hdul:
-        reset = np.array(np.rot90(hdul[1].data, ROTATE, (-2,-1)), dtype=np.float64)
-        dq = np.array(np.rot90(hdul["DQ"].data, ROTATE))
-        print("Note: throw away first {} integrations".format(reset.shape[0] - 1))
-        N_grp = data.shape[1]
-        N_grp_reset = reset.shape[1]
-        if N_grp <= N_grp_reset:
-            after_reset -= reset[-1, :N_grp]
-        else:
-            after_reset[:, :N_grp_reset] -= reset[-1]
-
-    return after_reset, dq
 
 def subtract_ref(data, noutputs):
     result = np.copy(data)
@@ -142,7 +128,7 @@ def get_slopes_initial(after_gain, read_noise):
     return full_signal_estimate, full_error, median_residuals
 
 
-def get_slopes(after_gain, read_noise, max_iter=50, sigma=5, bad_grps=0):
+def get_slopes(after_gain, read_noise, max_iter=50, sigma=7, bad_grps=0):
     N = N_grp - 1 - bad_grps
     j = np.array(np.arange(1, N + 1), dtype=np.float64)
 
@@ -243,6 +229,7 @@ for filename in sys.argv[1:]:
     data = np.array(
         np.rot90(hdul[1].data, ROTATE, axes=(2,3)),
         dtype=np.float64)
+    
     N_int, N_grp, N_row, N_col = data.shape
     mask = get_mask()
 
@@ -253,11 +240,6 @@ for filename in sys.argv[1:]:
     if not SKIP_REF:
         print("Subtracting ref pixels")
         data = subtract_ref(data, hdul[0].header["NOUTPUTS"])
-
-    if not SKIP_RESET:
-        print("Applying reset correction")
-        data, dq = apply_reset(data)
-        mask |= dq
 
     print("Applying non-linearity correction")
     data, dq = apply_nonlinearity(data)
@@ -278,6 +260,11 @@ for filename in sys.argv[1:]:
     data -= residuals1
 
     print("Getting slopes 2")
+    data[:,:,:,-1] = 0
+    '''data[:,:,64,207] = 0
+    data[:,:,30,84] = 0
+    data[:,:,66,146] = 0
+    pdb.set_trace()'''
     signal, error, per_int_mask, residuals2 = get_slopes(data, read_noise)
 
     if not SKIP_FLAT:
