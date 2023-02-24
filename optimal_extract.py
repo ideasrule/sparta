@@ -118,7 +118,7 @@ for filename in sys.argv[1:]:
                 hdul["BKD"].data[i][s],
                 hdul["DQ"].data[i][s] != 0,
                 hdul["RNOISE"].data[s],
-                hdul[0].header["NGROUPS"] - BAD_GRPS,
+                hdul[0].header["NGROUPS"],
                 shifted_P)
             bkd = hdul["BKD"].data[i][s].mean(axis=0)
             hdulist.append(fits.BinTableHDU.from_columns([
