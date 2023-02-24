@@ -10,7 +10,7 @@ INSTRUMENT = "MIRI" #Change this
 if INSTRUMENT == "MIRI":
     SUBARRAY = "SLITLESSPRISM"
     FILTER = "P750L"
-    BAD_GRPS = 1
+    BAD_GRPS = 5
     ROTATE = -1
     SKIP_SUPERBIAS = True
     SKIP_FLAT = False
