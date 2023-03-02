@@ -7,7 +7,7 @@ import scipy.linalg
 import os.path
 import astropy.stats
 import pdb
-from constants import HIGH_ERROR, TOP_MARGIN, X_MIN, X_MAX, OPT_EXTRACT_WINDOW, BAD_GRPS, BKD_REG_TOP, BKD_REG_BOT, Y_CENTER, INSTRUMENT, FILTER, SUBARRAY
+from constants import HIGH_ERROR, TOP_MARGIN, X_MIN, X_MAX, OPT_EXTRACT_WINDOW, BKD_REG_TOP, BKD_REG_BOT, Y_CENTER, INSTRUMENT, FILTER, SUBARRAY
 from scipy.stats import median_abs_deviation
 from wave_sol import get_wavelengths
 
@@ -138,7 +138,7 @@ for filename in sys.argv[1:]:
                 #plt.show()
 
                 spectra_filename = "optspectra_{}_" + filename[:-4] + "png"
-                N = hdul[0].header["NGROUPS"] - 1 - BAD_GRPS
+                N = hdul[0].header["NGROUPS"] - 1
                 plt.clf()
                 plt.plot(spectrum * N, label="Spectra")
                 plt.plot(variance * N**2, label="Variance")
