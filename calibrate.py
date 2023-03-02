@@ -83,7 +83,8 @@ def subtract_dark(data, nframes, groupgap):
     assert(data.shape[1] <= final_dark.shape[0])
     
     result = data - final_dark[:data.shape[1]]
-    mask = (final_dark[0] == 0) | (dq > 0)
+    mask = dq > 0
+    
     return result, mask
 
 def get_slopes_initial(after_gain, read_noise):
@@ -257,10 +258,11 @@ for filename in sys.argv[1:]:
     print("Getting slopes 1")
 
     signal, error, residuals1 = get_slopes_initial(data, read_noise)
+    #data -= np.load("median_residuals.npy")
     data -= residuals1
 
     print("Getting slopes 2")
-    data[:,:,:,-1] = 0
+    data[:,:,:,-1] = 0 #sometimes anomalous
     '''data[:,:,64,207] = 0
     data[:,:,30,84] = 0
     data[:,:,66,146] = 0
