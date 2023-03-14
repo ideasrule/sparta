@@ -30,7 +30,6 @@ def read_data(filenames):
                 data = np.append(data, lcs, axis=0)
                 errors = np.append(errors, lc_errors, axis=0)
                 bkd = np.append(bkd, curr_bkd, axis=0)
-            print(len(times))            
             times += list(hdul["INT_TIMES"].data["int_mid_BJD_TDB"])
             section_edges.append(len(times))
             assert(hdul[0].header["INTEND"] - hdul[0].header["INTSTART"] + 1 == len(lcs))
@@ -80,7 +79,7 @@ def reject_rows(data, errors, bkd, times, x, y, sigma=4, num_discard_beginning=1
     plt.figure()
     plt.plot(np.sum(data[~bad_rows][:,33:55], axis=1))
 
-    return data[~bad_rows], errors[~bad_rows], bkd[~bad_rows], times[~bad_rows], x[~bad_rows], y[~bad_rows]
+    return data[~bad_rows], errors[~bad_rows], bkd[~bad_rows], times[~bad_rows], x[~bad_rows], y[~bad_rows], bad_rows
 
 def reject_cols(data, errors, wavelengths, threshold=1.2):
     is_bad = np.zeros(data.shape[1], dtype=bool)
@@ -120,7 +119,7 @@ output = {"uncut_wavelengths": wavelengths,
 print(wavelengths[244:250])
 print(wavelengths[250:])
 plt.figure()
-plt.imshow(data / np.mean(data, axis=0), aspect='auto', vmin=0.995, vmax=1.005)
+plt.imshow(data / np.mean(data, axis=0), aspect='auto', vmin=0.98, vmax=1.01)
 for e in section_edges:
     plt.axhline(e, color='k')
  
@@ -132,25 +131,27 @@ output.update({"uncut_y": y,
                "uncut_x": x})
 
 
-data, errors, bkd, times, x, y = reject_rows(data, errors, bkd, times, x, y)
+data, errors, bkd, times, x, y, bad_rows = reject_rows(data, errors, bkd, times, x, y)
 #data, errors, wavelengths = reject_cols(data, errors, wavelengths)
 #data = repair_rows(data)
 clean_pixels(data)
 
 output.update({"wavelengths": wavelengths,
-          "times": times,
-          "data": data,
-          "errors": errors,
-          "bkd": bkd,
-          "x": x,
-          "y": y})
+               "times": times,
+               "data": data,
+               "errors": errors,
+               "bkd": bkd,
+               "x": x,
+               "y": y,
+               "bad_rows": bad_rows
+               })
 
 with open("data.pkl", "wb") as f:
     pickle.dump(output, f)
 
 
 plt.figure()
-plt.imshow(data / np.mean(data, axis=0), aspect='auto', vmin=0.995, vmax=1.005)
+plt.imshow(data / np.mean(data, axis=0), aspect='auto', vmin=0.98, vmax=1.01)
 plt.xlabel("Wavelength")
 plt.ylabel("Time")
 plt.show()
