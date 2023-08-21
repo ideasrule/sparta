@@ -12,6 +12,9 @@ import os.path
 import pdb
 from scipy.ndimage import uniform_filter
 import pywt
+from dynesty import NestedSampler
+from dynesty import plotting as dyplot
+import dynesty.utils
 
 def get_batman_params(t0, per, rp, a, inc, limb_dark_coeffs, \
                       t_secondary=None, w=0, ecc=0, limb_dark_law="nonlinear"):
@@ -46,25 +49,32 @@ def get_planet_flux(eclipse_model, batman_params, t0, period, bjds, Fp, C1, D1,
     #if planet_cosine is None:
     #    planet_cosine = np.cos(w*bjds)
 
-    planet_sine = np.sin(w*(bjds - t_secondary))
-    planet_cosine = np.cos(w*(bjds - t_secondary))
+    fine_args = w*(bjds - t_secondary)
+    coarse_args = np.linspace(fine_args[0], fine_args[-1], 1000)
+    #import pdb
+    #pdb.set_trace()
+    assert(np.max(np.diff(fine_args)) < 2*(coarse_args[1] - coarse_args[0]))
+    
+    planet_sine = np.sin(coarse_args)
+    planet_cosine = np.cos(coarse_args)
 
     #planet_sine = np.sin(w*bjds)
     #planet_cosine = np.cos(w*bjds)
     
-    Lplanet = Fp + C1*planet_cosine + D1*planet_sine - C1
+    Lplanet_coarse = Fp + C1*planet_cosine + D1*planet_sine - C1
     
     if C2 is not None:        
-        planet_cosine2 = np.cos(2*w*(bjds - t_secondary))
-        Lplanet += C2*planet_cosine2 - C2
+        planet_cosine2 = np.cos(2*coarse_args)
+        Lplanet_coarse += C2*planet_cosine2 - C2
         #assert(False)
         #print("C2")
     if D2 is not None:
-        planet_sine2 = np.sin(2*w*(bjds - t_secondary))
-        Lplanet += D2*planet_sine2
+        planet_sine2 = np.sin(2*coarse_args)
+        Lplanet_coarse += D2*planet_sine2
         #assert(False)
         #print("D2")
-        
+
+    Lplanet = np.interp(fine_args, coarse_args, Lplanet_coarse)
     Lplanet *= (eclipse_model.light_curve(batman_params) - 1)
     #plt.plot(eclipse_model.light_curve(batman_params) - 1)
     #plt.show()
@@ -107,14 +117,19 @@ def plot_fit_and_residuals(phases, binsize, Lobserved, Lexpected, gp=None, bjds=
     axarr[1].set_ylabel("Relative flux", fontsize=fontsize)
     
 def lnprob_transit(params, initial_batman_params, transit_model, bjds,
-                   fluxes, errors, y, initial_t0, plot_result=False,
+                   fluxes, errors, y, x, initial_t0, plot_result=False,
                    return_residuals=False,
                    output_filename="white_lightcurve.txt"):
-    transit_offset, rp, a_star, b, error_factor, Fstar, A, tau, y_coeff, m = params
+    transit_offset, rp, a_star, b, error_factor, Fstar, A, tau, y_coeff, x_coeff, m, q1, q2 = params
     #a_star = 7.61
     inc = np.arccos(b/a_star) * 180/np.pi
 
+    u1 = 2*np.sqrt(q1) * q2
+    u2 = np.sqrt(q1) * (1 - 2*q2)
+    if q1 < 0 or q1 > 1 or q2 < 0 or q2 > 1: return -np.inf
     batman_params = initial_batman_params
+    batman_params.u = [u1, u2]
+    #batman_params.u[1] = u2 # = [initial_batman_params.u[0], u2]
     batman_params.t0 = initial_t0 + transit_offset
     batman_params.rp = rp
     batman_params.a = a_star
@@ -123,14 +138,14 @@ def lnprob_transit(params, initial_batman_params, transit_model, bjds,
     #now account for prior
     if (np.abs(params[0])) >= batman_params.per/4.0:
         return -np.inf
-    if tau <= 0 or tau > 0.9: return -np.inf
+    if tau <= 1e-3 or tau > 0.1: return -np.inf
         
     if error_factor <= 0 or error_factor >= 5: return -np.inf
     if rp <= 0 or rp >= 1 or a_star <= 0 or b <= 0 or b >= 1: return -np.inf
     scaled_errors = error_factor * errors
 
     delta_t = bjds - bjds[0]
-    systematics = Fstar * (1 + A*np.exp(-delta_t/tau) + y_coeff * y + m * (bjds - np.mean(bjds)))
+    systematics = Fstar * (1 + A*np.exp(-delta_t/tau) + y_coeff * y + x_coeff * x + m * (bjds - np.mean(bjds)))
     astro = transit_model.light_curve(batman_params)
     model = systematics * astro
 
@@ -138,7 +153,9 @@ def lnprob_transit(params, initial_batman_params, transit_model, bjds,
     phases -= np.round(np.median(phases))
     
     residuals = fluxes - model
-    #residuals[np.logical_and(phases > -0.0024, phases < 0.007)] = 0
+    if abs(batman_params.t0 - 59820.937747) < 1e-3:
+        #assert(False)
+        residuals[np.logical_and(phases > -0.0024, phases < 0.007)] = 0
     
     result = -0.5*(np.sum(residuals**2/scaled_errors**2 - np.log(1.0/scaled_errors**2)))
 
@@ -171,24 +188,46 @@ def lnprob_transit(params, initial_batman_params, transit_model, bjds,
 
 
 def lnprob_transit_limited(params, batman_params, transit_model, bjds,
-                           fluxes, errors, y, fix_tau=None, plot_result=False,
+                           fluxes, errors, y, x, fix_tau=None, plot_result=False,
                            return_residuals=False, wavelength=None, output_filename="lightcurves.txt"):
     batman_params = copy.deepcopy(batman_params)
-    depth, error_factor, Fstar, A, tau, y_coeff, m = params
+    depth, error_factor, Fstar, A, tau, y_coeff, x_coeff, m, u1, u2 = params
     
     if Fstar <= 0:
         return -np.inf
 
     if error_factor <= 0: return -np.inf
     if depth <= 0 or depth >= 1: return -np.inf
-    if tau <= 0 or tau > 0.9: return -np.inf
+    if tau < 0 or tau > 0.1: return -np.inf
     if fix_tau is not None:
         tau = fix_tau
+    #if q1 <= 0 or q1 >= 1 or q2 <= 0 or q2 >= 1: return -np.inf
+
+    #q1 = 0.0334
+    #q2 = 0.445
+
+    #q1 = 0.050
+    #q2 = 0.08
+
+    #q1 = 0.04
+
+    #q1_init = (batman_params.u[0] + batman_params.u[1])**2
+    #q2_init = 0.5 * batman_params.u[0] / (batman_params.u[0] + batman_params.u[1])
+    
+    #u1 = 2*np.sqrt(q1) * q2
+    #u2 = np.sqrt(q1) * (1 - 2*q2)
 
     rp = np.sqrt(depth)
+
+    #lnprior = -0.5 * ((q1 - q1_init)**2 + (q2 - q2_init)**2) / 0.1**2
+    lnprior = -0.5 * ((u1 - batman_params.u[0])**2 + (u2 - batman_params.u[1])**2) / 0.1**2
+    #lnprior = 0
+    
+    #batman_params.u[1] = u2# = [u1, u2]
+    #batman_params.u = [u1, u2]
     batman_params.rp = rp
     delta_t = bjds - bjds[0]
-    systematics = Fstar * (1 + 0*A*np.exp(-delta_t/tau) + y_coeff * y + m * (bjds - np.mean(bjds)))
+    systematics = Fstar * (1 + A*np.exp(-delta_t/tau) + y_coeff * y + x_coeff * x + m * (bjds - np.mean(bjds)))
     
     astro = transit_model.light_curve(batman_params)
     model = systematics * astro
@@ -198,8 +237,12 @@ def lnprob_transit_limited(params, batman_params, transit_model, bjds,
     phases = (bjds-batman_params.t0)/batman_params.per
     phases -= np.round(np.median(phases))
 
-    #residuals[np.logical_and(phases > -0.0024, phases < 0.007)] = 0
-    result = -0.5*(np.sum(residuals**2/scaled_errors**2 - np.log(1.0/scaled_errors**2)))
+    if abs(batman_params.t0 - 59820.937747) < 1e-3:
+        #assert(False)
+        #residuals[np.logical_and(phases > -0.0024, phases < 0.007)] = 0
+        residuals[np.logical_and(phases > -5.19e-4, phases < 6.95e-3)] = 0
+        
+    result = lnprior -0.5*(np.sum(residuals**2/scaled_errors**2 - np.log(1.0/scaled_errors**2)))
 
     if plot_result:
         print("lnprob", result)
@@ -226,7 +269,8 @@ def lnprob_transit_limited(params, batman_params, transit_model, bjds,
         plt.title("systematics")
 
 
-        print(np.std(residuals[phases < -0.09]), np.std(residuals[phases > -0.09]))
+        print("STD of residuals", np.std(residuals))
+        
     if np.random.randint(0, 1000) == 0:
         print(result/len(residuals), rp**2, np.median(scaled_errors), error_factor, Fstar, np.median(np.abs(residuals)), rp)
     #if result/len(residuals) > 4.7:
@@ -242,10 +286,11 @@ def lnprob_transit_limited(params, batman_params, transit_model, bjds,
     return result
 
 def lnprob_eclipse(params, initial_batman_params, eclipse_model, bjds,
-                   fluxes, errors, y, initial_t_secondary, plot_result=False,
+                   fluxes, errors, y, x, initial_t_secondary, plot_result=False,
                    return_residuals=False, max_Fp=0.02,
                    output_filename="white_lightcurve.txt"):
-    eclipse_offset, Fp, error_factor, Fstar, A, tau, y_coeff, m = params
+    eclipse_offset, Fp, error_factor, Fstar, A, tau, y_coeff, x_coeff, m = params
+    #x_coeff = -0.0152
     batman_params = initial_batman_params
     batman_params.t_secondary = initial_t_secondary + eclipse_offset
     
@@ -259,7 +304,7 @@ def lnprob_eclipse(params, initial_batman_params, eclipse_model, bjds,
     scaled_errors = error_factor * errors
 
     delta_t = bjds - bjds[0]
-    systematics = Fstar * (1 + A*np.exp(-delta_t/tau) + y_coeff * y + m * (bjds - np.mean(bjds)))
+    systematics = Fstar * (1 + A*np.exp(-delta_t/tau) + 0*y_coeff * y + x_coeff * x + m * (bjds - np.mean(bjds)))
     astro = 1 + get_planet_flux(eclipse_model, batman_params, batman_params.t0, batman_params.per, bjds, Fp, 0, 0, 0, 0, t_secondary=batman_params.t_secondary)
     model = systematics * astro
     
@@ -296,27 +341,57 @@ def lnprob_eclipse(params, initial_batman_params, eclipse_model, bjds,
     return result
 
 def lnprob_eclipse_limited(params, initial_batman_params, eclipse_model, bjds,
-                           fluxes, errors, y, plot_result=False,
-                           return_residuals=False, wavelength=None, max_Fp=0.02,
+                           fluxes, errors, y, x, wavelength=None,
+                           plot_result=False,
+                           return_residuals=False, max_Fp=0.02,
                            output_filename="lightcurves.txt"):
-    Fp, error_factor, Fstar, A, tau, y_coeff, m = params
+    
+    Fp, error_factor, Fstar, A, tau, y_coeff, x_coeff, m = params
     batman_params = initial_batman_params
     
     #now account for prior
     if (np.abs(params[0])) >= batman_params.per/4.0:
         return -np.inf
-    if tau <= 0 or tau > 0.9: return -np.inf
-    if Fp < 0 or Fp > max_Fp: return -np.inf
+    if tau <= 0.01 or tau > 0.9: return -np.inf
+    if Fp < -max_Fp or Fp > max_Fp: return -np.inf
         
     if error_factor <= 0 or error_factor >= 5: return -np.inf
     scaled_errors = error_factor * errors
 
     delta_t = bjds - bjds[0]
-    systematics = Fstar * (1 + 0*A*np.exp(-delta_t/tau) + y_coeff * y + m * (bjds - np.mean(bjds)))
+    
+    #Hack in x_coeff
+    center_waves = np.array([5.3645, 5.9735, 6.5825, 7.1915, 7.8005, 8.4095, 9.0185, 9.6275, 10.2365, 10.8455, 11.4545, 12.0635])
+
+    #Slopes
+    #No correction for saturated pixels
+    #theoretical_x_coeffs = np.array([-0.0062, -0.018, -0.019, -0.020, -0.018, -0.011, -0.015, -0.012, -0.020, -0.021, -0.017, -0.021])
+
+    #Opt
+    theoretical_x_coeffs = np.array([-0.00142, -0.00328, -0.00831, -0.0151, -0.0186, -0.0109, -0.0153, -0.0121, -0.0197, -0.0207, -0.0162, -0.0209])
+
+    #GJ 367b
+    #theoretical_x_coeffs = np.array([-0.033, -0.023, -0.024, -0.017, -0.021, -0.011, -0.013, -0.012, -0.020, -0.020, -0.017, -0.020])
+
+    #Simple, window 3
+    #theoretical_x_coeffs = np.array([-0.0014, -0.0033, -0.0083, -0.015, -0.019, -0.011, -0.015, -0.012, -0.020, -0.021, -0.016, -0.021])
+
+    #0th group
+    #theoretical_x_coeffs = np.array([-0.031, -0.024, -0.016, -0.017, -0.019, -0.010, -0.015, -0.012, -0.021, -0.022, -0.014, -0.027])
+    
+    curr_theoretical_x_coeff = theoretical_x_coeffs[np.argmin(np.abs(wavelength - center_waves))]
+    #x_coeff = curr_theoretical_x_coeff
+
+    
+    systematics = Fstar * (1 + A*np.exp(-delta_t/tau) + 0*y_coeff * y + x_coeff * x + m * (bjds - np.mean(bjds)))
     astro = 1 + get_planet_flux(eclipse_model, batman_params, batman_params.t0, batman_params.per, bjds, Fp, 0, 0, 0, 0, t_secondary=batman_params.t_secondary)
     model = systematics * astro
     
     residuals = fluxes - model
+    phases = (bjds - batman_params.t0) / batman_params.per
+    phases -= np.round(np.median(phases))
+    #scaled_errors[phases > 0.544] = 10 #GJ 486b visit 1 only
+    
     result = -0.5*(np.sum(residuals**2/scaled_errors**2 - np.log(1.0/scaled_errors**2)))
 
     if plot_result:
@@ -333,8 +408,6 @@ def lnprob_eclipse_limited(params, initial_batman_params, eclipse_model, bjds,
                     residuals[i] / Fstar))
         
         binsize = len(fluxes) // 100
-        phases = (bjds-batman_params.t0)/batman_params.per
-        phases -= np.round(np.median(phases))
 
         plot_fit_and_residuals(phases, binsize, fluxes / systematics, astro)
         plt.figure()
@@ -352,11 +425,9 @@ def lnprob_eclipse_limited(params, initial_batman_params, eclipse_model, bjds,
     return result
 
 def lnprob(params, initial_batman_params, transit_model, eclipse_model, bjds,
-           fluxes, errors, x, initial_t0, 
+           fluxes, errors, y, x, initial_t0, 
            extra_phase_terms=False, plot_result=False, max_Fp=1,
            return_residuals=False, output_filename="white_lightcurve.txt"):
-    
-    #planet_sine and planet_cosine are sin(w*bjds) and cos(w*bjds); included so we don't have to compute them every iteration
     transit_offset = params[0]
     eclipse_offset = params[1]
     Fp = params[2]
@@ -369,38 +440,42 @@ def lnprob(params, initial_batman_params, transit_model, eclipse_model, bjds,
     else:
         end_phase_terms = 5
 
-    rp, a_star, b, error_factor, Fstar, A, one_over_tau, x_coeff, m = params[end_phase_terms:]
+    rp, a_star, b, error_factor, Fstar, A, tau, y_coeff, x_coeff, m = params[end_phase_terms:]    
     inc = np.arccos(b/a_star) * 180/np.pi
     
     batman_params = initial_batman_params
     batman_params.t0 = initial_t0 + transit_offset
-    batman_params.t_secondary = initial_t0 + batman_params.per/2.0 + eclipse_offset
     batman_params.rp = rp
     batman_params.a = a_star
     batman_params.inc = inc
+    #batman_params.ecc = np.sqrt(ecosw**2 + esinw**2)    
+    #batman_params.w = 180/np.pi * np.arctan2(esinw, ecosw)
+    batman_params.t_secondary = initial_t0 + batman_params.per/2 + eclipse_offset
+    if b <= 0 or b >= 1: return -np.inf
 
     #now account for prior
-    if (np.abs(params[0])) >= batman_params.per/4.0:
+    if (np.abs(params[0])) >= batman_params.per/20.0:
         return -np.inf
         
-    if (np.abs(params[1])) >= batman_params.per/10.0:
+    if (np.abs(params[1])) >= batman_params.per/20.0:
         return -np.inf
 
     if Fstar <= 0:
         return -np.inf
+    
+    if tau < 1e-2 or tau > 0.3: return -np.inf
+    #if one_over_tau < 5 or one_over_tau > 100: return -np.inf
+    #tau = 1./one_over_tau
 
-    if one_over_tau < 5 or one_over_tau > 100: return -np.inf
-    tau = 1./one_over_tau
-
-    if Fp >= max_Fp: return -np.inf
+    if Fp <= 0 or Fp >= max_Fp: return -np.inf
     if error_factor <= 0 or error_factor >= 5: return -np.inf
-    if rp <= 0 or rp >= 1 or a_star <= 0 or b <= 0 or b >= 1: return -np.inf
+    #if rp <= 0 or rp >= 1 or a_star <= 0 or b <= 0 or b >= 1: return -np.inf
     
     lnprior = -0.5 * A**2 / 0.1**2
     scaled_errors = error_factor * errors
 
     delta_t = bjds - bjds[0]
-    systematics = Fstar * (1 + A*np.exp(-delta_t/tau) + x_coeff * x + m * (bjds - np.mean(bjds)))
+    systematics = Fstar * (1 + A*np.exp(-delta_t/tau) + y_coeff * y + x_coeff * x + m * (bjds - np.mean(bjds)))
     
     if extra_phase_terms:
         Lplanet = get_planet_flux(eclipse_model, batman_params, batman_params.t0, batman_params.per, bjds, Fp, C1, D1, C2, D2, t_secondary=batman_params.t_secondary)
@@ -416,7 +491,8 @@ def lnprob(params, initial_batman_params, transit_model, eclipse_model, bjds,
     #scaled_errors[np.logical_and(phases > -0.06, phases < -0.011)] = 10
     
     residuals = fluxes - model
-    #residuals[np.logical_and(phases > -0.06, phases < -0.011)] = 0
+    #residuals[np.logical_and(phases > -0.3506, phases < -0.3451)] = 0
+    #residuals[np.logical_and(phases > 0.19879, phases < 0.206)] = 0
     result = lnprior -0.5*(np.sum(residuals**2/scaled_errors**2 - np.log(1.0/scaled_errors**2)))
 
     if plot_result:
@@ -428,7 +504,7 @@ def lnprob(params, initial_batman_params, transit_model, eclipse_model, bjds,
                                                         systematics[i] / Fstar, astro[i], model[i] / Fstar,
                                                         residuals[i] / Fstar))
         
-        binsize = 32
+        binsize = len(bjds) // 200
         phases = (bjds-batman_params.t0)/batman_params.per
         phases -= np.round(np.median(phases))
 
@@ -437,13 +513,13 @@ def lnprob(params, initial_batman_params, transit_model, eclipse_model, bjds,
         plt.scatter(bjds, Lplanet)
 
         plt.figure()
-        plt.scatter(bjds, systematics)
+        plt.scatter(bjds[::binsize], uniform_filter(systematics, binsize)[::binsize])
 
 
         print("STD including & excluding near-transit:", np.std(residuals), np.std(residuals[np.abs(phases) > 0.1]))
               
     if np.random.randint(0, 1000) == 0:
-        print(result/len(residuals), error_factor, Fp, np.median(np.abs(residuals)), rp, a_star, inc, b)
+        print(result/len(residuals), error_factor, Fp, np.median(np.abs(residuals)), rp)
    
     if return_residuals:
         return result, residuals    
@@ -487,8 +563,8 @@ def wavelet_lnlike(residuals, sigma_w, sigma_r, gamma=1):
 
 
 def lnprob_limited(params, batman_params, transit_model, eclipse_model, bjds,
-                           fluxes, errors, x, initial_t0, fix_tau, extra_phase_terms=False, plot_result=False, max_Fp=1,
-                           return_residuals=False, wavelength=None, output_filename="lightcurves.txt"):
+                           fluxes, errors, y, x, initial_t0, fix_tau, extra_phase_terms=False, wavelength=None, plot_result=False, max_Fp=1,
+                           return_residuals=False, output_filename="lightcurves.txt"):
     batman_params = copy.deepcopy(batman_params)
     Fp = params[0]
     C1 = params[1]
@@ -499,35 +575,42 @@ def lnprob_limited(params, batman_params, transit_model, eclipse_model, bjds,
         end_phase_terms = 5
     else:
         end_phase_terms = 3
-    rp, error_factor, Fstar, A, one_over_tau, x_coeff, m = params[end_phase_terms:]
+    rp, error_factor, Fstar, A, tau, y_coeff, x_coeff, m = params[end_phase_terms:]
 
+    '''#Hack in x_coeff
+    center_waves = np.array([5.3645, 5.9735, 6.5825, 7.1915, 7.8005, 8.4095, 9.0185, 9.6275, 10.2365, 10.8455, 11.4545, 12.0635])
+    theoretical_x_coeffs = np.array([-0.033, -0.023, -0.024, -0.017, -0.021, -0.011, -0.013, -0.013, -0.012, -0.019, -0.020, -0.017, -0.020])
+    curr_theoretical_x_coeff = theoretical_x_coeffs[np.argmin(np.abs(wavelength - center_waves))]
+    x_coeff = curr_theoretical_x_coeff'''
+    
     if Fstar <= 0:
         return -np.inf
 
     if Fp >= max_Fp: return -np.inf
     if error_factor <= 0: return -np.inf
     if rp <= 0 or rp >= 1: return -np.inf
+    #if A <= 0: return -np.inf
 
-    if one_over_tau < 5 or one_over_tau > 100: return -np.inf
+    #if one_over_tau < 5 or one_over_tau > 100: return -np.inf
     batman_params.rp = rp
     
-    #if tau < 0.01 or tau > 1: return -np.inf
+    #if tau < 0.01 or tau > 1: return -np.inf    
+    if tau < 0.01 or tau > 0.2: return -np.inf
     #if tau_power <= 0 or tau_power > 3: return -np.inf
-    tau = 1./one_over_tau
+    #tau = 1./one_over_tau
     #tau2 = 1./one_over_tau2
     #if tau2 > tau/2: return -np.inf
 
-    #lnprior = 0
-    lnprior = -0.5 * A**2 / 0.1**2 #-0.5 * A2**2 / 0.1**2
+    lnprior = 0
+    #lnprior = -0.5 * A**2 / 0.1**2 #-0.5 * A2**2 / 0.1**2
     
     delta_t = bjds - bjds[0]
 
     #Fix ramp values
-    #A = 4.38e-4
-    #tau = 1./5.9
-    A2 = 0
+    #A = 3e-4
+    #tau = 0.12
     
-    systematics = Fstar * (1 + A*np.exp(-delta_t/tau) + x_coeff * x + m * (bjds - np.mean(bjds)))
+    systematics = Fstar * (1 + A*np.exp(-delta_t/tau) + y_coeff * y + x_coeff * x + m * (bjds - np.mean(bjds)))
 
     if extra_phase_terms:
         Lplanet = get_planet_flux(eclipse_model, batman_params, batman_params.t0, batman_params.per, bjds, Fp, C1, D1, C2, D2, t_secondary=batman_params.t_secondary)
@@ -543,7 +626,11 @@ def lnprob_limited(params, batman_params, transit_model, eclipse_model, bjds,
 
     phases = (bjds-batman_params.t0)/batman_params.per
     phases -= np.round(np.median(phases))
-   
+
+    residuals[np.logical_and(phases > -0.3506, phases < -0.3451)] = 0
+    #residuals[np.logical_and(phases > -0.28154, phases < -0.246)] = 0
+    residuals[np.logical_and(phases > 0.19879, phases < 0.206)] = 0
+    
     result = lnprior - 0.5*(np.sum(residuals**2/scaled_errors**2 - np.log(1.0/scaled_errors**2)))
 
     if plot_result:
@@ -558,7 +645,7 @@ def lnprob_limited(params, batman_params, transit_model, eclipse_model, bjds,
                                                      systematics[i] / Fstar, astro[i], model[i] / Fstar,
                                                      residuals[i] / Fstar))
                 
-        binsize = 64
+        binsize = len(bjds) // 200
         #residuals -= np.mean(residuals)
         phases = (bjds-batman_params.t0)/batman_params.per
         phases -= np.round(np.median(phases))
@@ -644,6 +731,28 @@ def run_sampler_return_best(sampler, total_runs, output_dir, output_prefix, init
         chunk_counter += 1
 
     return best_step
+
+
+def run_dynesty(lnlike, lnlike_args, prior_transform, num_dim, output_dir, nlive=200):
+    def dynesty_ln_like(params):
+        return lnlike(params, *lnlike_args)
+    
+    sampler = NestedSampler(dynesty_ln_like, prior_transform, num_dim, bound='multi', nlive=nlive)
+    sampler.run_nested()
+    result = sampler.results
+    best_step = result.samples[np.argmax(result.logl)]
+    normalized_weights = np.exp(result.logwt - np.max(result.logwt))
+    normalized_weights /= np.sum(normalized_weights)
+    
+    equal_samples = dynesty.utils.resample_equal(result.samples, normalized_weights)
+    np.random.shuffle(equal_samples)
+    equal_logl = np.zeros(len(equal_samples))
+    for i in range(len(equal_samples)):
+        index = np.argwhere((result.samples == equal_samples[i]).all(-1))[0,0]
+        equal_logl[i] = result.logl[index]
+    return best_step, equal_samples, equal_logl
+    
+    
 
 def run_emcee(lnprob, lnprob_args, initial_params, nwalkers, output_dir, burn_in_runs, production_runs):
     ndim = len(initial_params)

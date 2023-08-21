@@ -14,7 +14,7 @@ from emcee_methods import get_batman_params, run_emcee
 import time
 import corner
 
-def correct_lc(wavelengths, fluxes, errors, bjds, y, t0, t_secondary, per, rp, a, inc,
+def correct_lc(wavelengths, fluxes, errors, bjds, y, x, t0, t_secondary, per, rp, a, inc,
                limb_dark_coeffs, fp, output_file_prefix="chain",
                nwalkers=100, burn_in_runs=100, production_runs=1000, output_txt="white_light_result.txt"):
     print("Median is", np.median(fluxes))
@@ -27,12 +27,12 @@ def correct_lc(wavelengths, fluxes, errors, bjds, y, t0, t_secondary, per, rp, a
     error_factor = 1.1 #Initial guess; slightly larger than 1 is usually good
     print("Error factor", error_factor)
     b = a*np.cos(inc*np.pi/180)
-    initial_params = np.array([0, fp, error_factor, 1, 0, 1./24, 0, 0])
-    labels = ["delta_te", "Fp", "error", "Fstar", "Aramp", "tau", "cy", "m"]
+    initial_params = np.array([0, fp, error_factor, 1, 0, 1./24, 0, 0, 0])
+    labels = ["delta_te", "Fp", "error", "Fstar", "Aramp", "tau", "cy", "cx", "m"]
 
     #All arguments, aside from the parameters, that will be passed to lnprob
     w = 2*np.pi/per
-    lnprob_args = (initial_batman_params, transit_model, bjds, fluxes, errors, y, t_secondary)
+    lnprob_args = (initial_batman_params, transit_model, bjds, fluxes, errors, y, x, t_secondary)
     
     _, chain, lnprobs = run_emcee(lnprob, lnprob_args, initial_params, nwalkers, output_file_prefix, burn_in_runs, production_runs)
     length = len(chain)
@@ -73,7 +73,7 @@ parser.add_argument("-e", "--exclude-beginning", type=int, default=1122, help="H
 
 args = parser.parse_args()
 
-bjds, fluxes, flux_errors, wavelengths, y, _ = get_data_pickle(args.start_wave, args.end_wave, args.exclude_beginning)
+bjds, fluxes, flux_errors, wavelengths, y, x = get_data_pickle(args.start_wave, args.end_wave, args.exclude_beginning)
 
 bin_size = args.bin_size
 binned_fluxes = bin_data(fluxes, bin_size)
@@ -82,10 +82,14 @@ binned_fluxes /= factor
 binned_errors = np.sqrt(bin_data(flux_errors**2, bin_size) / bin_size) / factor
 binned_bjds = bin_data(bjds, bin_size)
 binned_y = bin_data(y, bin_size)
+binned_x = bin_data(x, bin_size)
 
 delta_t = binned_bjds - np.median(binned_bjds)
 coeffs = np.polyfit(delta_t, binned_y, 1)
 smoothed_binned_y = np.polyval(coeffs, delta_t)
+
+coeffs = np.polyfit(delta_t, binned_x, 1)
+smoothed_binned_x = np.polyval(coeffs, delta_t)
 
 
 print("Num points", len(binned_fluxes))
@@ -95,6 +99,9 @@ config = ConfigParser()
 config.read(args.config_file)
 items = dict(config.items(default_section_name))
 
-correct_lc(wavelengths, binned_fluxes, binned_errors, binned_bjds, binned_y - smoothed_binned_y, float(items["t0"]), float(items["t_secondary"]), float(items["per"]),
+correct_lc(wavelengths, binned_fluxes, binned_errors, binned_bjds,
+           binned_y - smoothed_binned_y,
+           binned_x - smoothed_binned_x,
+           float(items["t0"]), float(items["t_secondary"]), float(items["per"]),
            float(items["rp"]), float(items["a"]), float(items["inc"]), eval(items["limb_dark_coeffs"]), float(items["fp"]),
            args.output, args.num_walkers, args.burn_in_runs, args.production_runs)

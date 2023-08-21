@@ -13,64 +13,10 @@ from multiprocessing import Pool
 from constants import HIGH_ERROR, TOP_MARGIN, X_MIN, X_MAX, SUM_EXTRACT_WINDOW, BAD_GRPS, BKD_REG_TOP, BKD_REG_BOT, INSTRUMENT, FILTER, SUBARRAY, Y_CENTER
 from scipy.stats import median_abs_deviation
 from wave_sol import get_wavelengths
-from fitting import robust_polyfit, fit_gaussian
 
-def get_trace(image):
-    col_nums = []
-    trace_ys = []
-
-    for x in range(image.shape[1]):
-        y_indices = np.arange(image.shape[0])
-        extracted_data = image[y_indices, x]
-        try:
-            coeffs, _, _ = fit_gaussian(y_indices, extracted_data)
-            trace_y = coeffs[1]
-        except RuntimeError:
-            continue
-            
-        trace_ys.append(trace_y)
-        col_nums.append(x)
-
-    col_nums = np.array(col_nums)
-    trace_ys = np.array(trace_ys)
-    if len(col_nums) == 0: return None
-    
-    '''plt.figure(0, figsize=(20,4))
-    plt.clf()
-    plt.plot(col_nums, trace_ys)
-    plt.savefig("trace.png")'''
-
-    trace, residuals = robust_polyfit(col_nums, trace_ys, 2, include_residuals=True, target_xs=np.arange(image.shape[1]))
-    '''plt.figure(figsize=(20,4))
-    plt.clf()
-    plt.plot(col_nums, residuals)
-    plt.axhline(0, color='r')
-    plt.savefig("trace_residuals.png")
-    np.save("trace.npy", trace)
-    #plt.show()'''
-    return trace
-
-def get_pixel_sum(image, min_y, max_y, x):
-    result = np.sum(image[int(min_y) : int(max_y), x])
-    result -= (min_y - int(min_y)) * image[int(min_y), x]
-    result += (max_y - int(max_y)) * image[int(max_y), x]
-    return result
-
-def simple_extract(image, err, window=2):
-    trace = get_trace(image)
-    spectrum = np.zeros(image.shape[1])
-    variance = np.zeros(image.shape[1])
-    for c in range(image.shape[1]):
-        #print(c, trace[c])
-        min_y = trace[c] - window
-        max_y = trace[c] + window + 1
-        spectrum[c] = get_pixel_sum(image, min_y, max_y, c)
-        variance[c] = get_pixel_sum(err**2, min_y, max_y, c)
-
-    #plt.figure()
-    #plt.plot(spectrum)
-    #plt.plot(variance)
-    #plt.show()
+def simple_extract(image, err):
+    spectrum = np.sum(image, axis=0)
+    variance = np.sum(err**2, axis=0)
     return spectrum, variance
         
 def process_one(filename):
@@ -93,7 +39,6 @@ def process_one(filename):
                 hdul["SCI"].data[i][s],
                 hdul["ERR"].data[i][s]            
             )
-
             bkd = np.mean(hdul["BKD"].data[i][s], axis=0)
             bkd_var = np.mean(hdul["BKD_ERR"].data[i][s]**2, axis=0)
             variance += bkd_var * (2*SUM_EXTRACT_WINDOW + 1)**2
@@ -117,6 +62,7 @@ def process_one(filename):
         output_hdul.writeto("x1d_" + os.path.basename(filename), overwrite=True)
     
 filenames = sys.argv[1:]
+
 with Pool() as pool:
     pool.map(process_one, filenames)
     

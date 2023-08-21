@@ -14,7 +14,7 @@ from emcee_methods import get_batman_params, run_emcee
 import time
 import corner
 
-def correct_lc(wavelengths, fluxes, errors, bjds, y, t0, per, rp, a, inc,
+def correct_lc(wavelengths, fluxes, errors, bjds, y, x, t0, per, rp, a, inc,
                limb_dark_coeffs, output_file_prefix="chain",
                nwalkers=100, burn_in_runs=100, production_runs=1000, output_txt="white_light_result.txt"):
     print("Median is", np.median(fluxes))
@@ -27,12 +27,12 @@ def correct_lc(wavelengths, fluxes, errors, bjds, y, t0, per, rp, a, inc,
     error_factor = 1.1 #Initial guess; slightly larger than 1 is usually good
     print("Error factor", error_factor)
     b = a*np.cos(inc*np.pi/180)
-    initial_params = np.array([0, rp, a, b, error_factor, 1, 0, 1./24, 0, 0])
-    labels = ["delta_t0", "rp", "a", "b", "error", "Fstar", "Aramp", "tau", "cy", "m"]
+    initial_params = np.array([0, rp, a, b, error_factor, 1, 0, 1./24, 0, 0, 0, 0.1, 0.1])
+    labels = ["delta_t0", "rp", "a", "b", "error", "Fstar", "Aramp", "tau", "cy", "cx", "m", "u1", "u2"]
 
     #All arguments, aside from the parameters, that will be passed to lnprob
     w = 2*np.pi/per
-    lnprob_args = (initial_batman_params, transit_model, bjds, fluxes, errors, y, t0)
+    lnprob_args = (initial_batman_params, transit_model, bjds, fluxes, errors, y, x, t0)
     
     _, chain, lnprobs = run_emcee(lnprob, lnprob_args, initial_params, nwalkers, output_file_prefix, burn_in_runs, production_runs)
     length = len(chain)
@@ -82,10 +82,14 @@ binned_fluxes /= factor
 binned_errors = np.sqrt(bin_data(flux_errors**2, bin_size) / bin_size) / factor
 binned_bjds = bin_data(bjds, bin_size)
 binned_y = bin_data(y, bin_size)
+binned_x = bin_data(x, bin_size)
 
 delta_t = binned_bjds - np.median(binned_bjds)
 coeffs = np.polyfit(delta_t, binned_y, 1)
 smoothed_binned_y = np.polyval(coeffs, delta_t)
+
+coeffs = np.polyfit(delta_t, binned_x, 1)
+smoothed_binned_x = np.polyval(coeffs, delta_t)
 
 
 print("Num points", len(binned_fluxes))
@@ -95,6 +99,6 @@ config = ConfigParser()
 config.read(args.config_file)
 items = dict(config.items(default_section_name))
 
-correct_lc(wavelengths, binned_fluxes, binned_errors, binned_bjds, binned_y - smoothed_binned_y, float(items["t0"]), float(items["per"]),
+correct_lc(wavelengths, binned_fluxes, binned_errors, binned_bjds, binned_y - smoothed_binned_y, binned_x - smoothed_binned_x, float(items["t0"]), float(items["per"]),
            float(items["rp"]), float(items["a"]), float(items["inc"]), eval(items["limb_dark_coeffs"]),
            args.output, args.num_walkers, args.burn_in_runs, args.production_runs)
