@@ -57,20 +57,21 @@ def get_pixel_sum(image, min_y, max_y, x):
     return result
 
 def simple_extract(image, err, window=2):
+    if INSTRUMENT == "MIRI":
+        #Do the simple thing of ignoring trace curvature
+        spectrum = image.sum(axis=0)
+        variance = (err**2).sum(axis=0)
+        return spectrum, variance
+    
     trace = get_trace(image)
     spectrum = np.zeros(image.shape[1])
     variance = np.zeros(image.shape[1])
     for c in range(image.shape[1]):
-        #print(c, trace[c])
         min_y = trace[c] - window
         max_y = trace[c] + window + 1
         spectrum[c] = get_pixel_sum(image, min_y, max_y, c)
         variance[c] = get_pixel_sum(err**2, min_y, max_y, c)
 
-    #plt.figure()
-    #plt.plot(spectrum)
-    #plt.plot(variance)
-    #plt.show()
     return spectrum, variance
         
 def process_one(filename):
