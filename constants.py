@@ -38,6 +38,7 @@ if INSTRUMENT == "NIRSPEC":
     X_MAX = 463
     SUM_EXTRACT_WINDOW = 4
     WCS_FILE = None
+    SAT_LEVEL = 5.9e4    
 
 if INSTRUMENT == "MIRI":
     SUBARRAY = "SLITLESSPRISM"
@@ -69,6 +70,7 @@ if INSTRUMENT == "MIRI":
     BKD_REG_TOP = [10, 25]
     BKD_REG_BOT = [-25, -10]
     SUM_EXTRACT_WINDOW = 3
+    SAT_LEVEL = 5e4
 
 elif INSTRUMENT == "NIRCAM":
     BAD_GRPS = 0
@@ -121,3 +123,4 @@ elif INSTRUMENT == "NIRCAM":
     RIGHT = 2048 
     TOP = 0
     BOT = SUBARR_SIZE
+    SAT_LEVEL = 5.9e4
