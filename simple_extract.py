@@ -57,7 +57,7 @@ def get_pixel_sum(image, min_y, max_y, x):
     return result
 
 def simple_extract(image, err, window=2):
-    if INSTRUMENT == "MIRI":
+    if INSTRUMENT=="MIRI" or INSTRUMENT=="NIRSPEC":
         #Do the simple thing of ignoring trace curvature
         spectrum = image.sum(axis=0)
         variance = (err**2).sum(axis=0)

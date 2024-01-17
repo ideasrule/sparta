@@ -21,6 +21,7 @@ import pdb
 def reject_outliers(data, errors, times, y, x, sigma=4):
     detrended = data - median_filter(data, int(len(data) / 100))
     mask = astropy.stats.sigma_clip(detrended, sigma).mask
+    mask |= astropy.stats.sigma_clip(errors, sigma).mask
     return data[~mask], errors[~mask], times[~mask], y[~mask], x[~mask]
 
 def estimate_limb_dark(wavelength, filename="limb_dark.txt"):

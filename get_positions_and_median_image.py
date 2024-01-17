@@ -1,4 +1,5 @@
 import astropy.io.fits
+import astropy.stats
 import numpy as np
 import matplotlib.pyplot as plt
 import sys
@@ -8,14 +9,16 @@ from multiprocessing import Pool
 from scipy.interpolate import RectBivariateSpline
 from constants import TOP_MARGIN, Y_CENTER, INSTRUMENT, FILTER, SUBARRAY
 
-def fix_outliers(data, badpix):
+def fix_outliers(data, badpix, sigma=5):
     for r in range(TOP_MARGIN, data.shape[0]):
         cols = np.arange(data.shape[1])
         good = ~badpix[r]
-        repaired = np.interp(cols, cols[good], data[r][good])
-        data[r] = repaired
+        data[r] = np.interp(cols, cols[good], data[r][good])
 
-def chi_sqr(params, image, error, template, left=10, right=-10, top=Y_CENTER-10, bottom=Y_CENTER+10):
+        good = ~astropy.stats.sigma_clip(data[r], sigma).mask
+        data[r] = np.interp(cols, cols[good], data[r][good])
+
+def chi_sqr(params, image, error, template, left=31, right=463, top=Y_CENTER-10, bottom=Y_CENTER+10, plot=False):
     delta_y, delta_x, A = params
     ys = np.arange(image.shape[0])
     xs = np.arange(image.shape[1])
@@ -23,6 +26,18 @@ def chi_sqr(params, image, error, template, left=10, right=-10, top=Y_CENTER-10,
     shifted_template = A * interpolator(ys + delta_y, xs + delta_x)
     residuals = image - shifted_template
     zs = residuals / error
+    '''zs[:,64:137] = 0
+    zs[7,187] = 0
+    zs[0:5,192:199] = 0
+    zs[9,257] = 0
+    zs[30,269] = 0
+    zs[12,344] = 0
+    zs[17,397] = 0
+    zs[13,478] = 0'''
+        
+    if plot:
+        plt.imshow(zs)
+        plt.show()
     return np.sum(zs[top:bottom, left:right]**2)
 
     
@@ -43,8 +58,10 @@ for filename in sys.argv[1:]:
         assert(hdul[0].header["INSTRUME"] == INSTRUMENT and hdul[0].header["FILTER"] == FILTER and hdul[0].header["SUBARRAY"] == SUBARRAY)
         data = hdul["SCI"].data
         error = hdul["ERR"].data
+        dq = hdul["DQ"].data
+
         for i in range(len(data)):
-            fix_outliers(data[i], np.isnan(data[i]))
+            fix_outliers(data[i], (dq[i] > 0) | np.isnan(data[i]))
             
         if all_data is None:
             all_data = data
@@ -62,10 +79,11 @@ all_error[np.isnan(all_error)] = np.inf
 print(len(all_data), len(all_filenames), len(all_int_nums))
 template = np.median(all_data, axis=0)
 fix_outliers(template, np.isnan(template))
-
+np.save("median_image.npy", template)
+#pdb.set_trace()
 
 def do_one(i):
-    bounds = ((-0.4,0.4), (-0.2,0.2), (0.95, 1.02))
+    bounds = ((-0.4,0.4), (-0.2,0.2), (0.9, 1.1))
     result = scipy.optimize.minimize(chi_sqr, [0,0,1], args=(all_data[i], all_error[i], template), bounds=bounds, method="Nelder-Mead")
 
     hit_bounds = False
@@ -83,7 +101,10 @@ def do_one(i):
     if not result.success or hit_bounds:
         result.x *= np.nan
 
+    #chi_sqr(result.x, all_data[i], all_error[i], template, plot=True)
     return result.x
+
+#do_one(1000)
 
 with Pool() as p:
     results = p.map(do_one, range(len(all_data)))    

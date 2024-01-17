@@ -47,7 +47,7 @@ def remove_bkd_nircam(data, err, dq):
     return data_no_bkd, err, subtracted, np.sqrt(var_subtracted), dq
 
 
-def remove_bkd_miri(data, err, dq):
+def remove_bkd(data, err, dq):
     bkd_im = np.zeros(data.shape)
     bkd_var_im = np.zeros(err.shape)
         
@@ -73,11 +73,11 @@ for filename in sys.argv[1:]:
     print(filename)
     hdul = astropy.io.fits.open(filename)
     assert(hdul[0].header["INSTRUME"] == INSTRUMENT and hdul[0].header["FILTER"] == FILTER and hdul[0].header["SUBARRAY"] == SUBARRAY)
-    if hdul[0].header["INSTRUME"] == "MIRI":
-        data_no_bkd, err, bkd, err_bkd, dq = remove_bkd_miri(
-            hdul["SCI"].data, hdul["ERR"].data, hdul["DQ"].data)
-    elif hdul[0].header["INSTRUME"] == "NIRCAM":
+    if hdul[0].header["INSTRUME"] == "NIRCAM":
         data_no_bkd, err, bkd, err_bkd, dq = remove_bkd_nircam(
+            hdul["SCI"].data, hdul["ERR"].data, hdul["DQ"].data)
+    else:
+        data_no_bkd, err, bkd, err_bkd, dq = remove_bkd(
             hdul["SCI"].data, hdul["ERR"].data, hdul["DQ"].data)
         
     hdul["SCI"].data = data_no_bkd

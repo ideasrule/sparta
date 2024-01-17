@@ -17,5 +17,11 @@ def get_wavelengths(instrument, instrument_filter):
         print("WARNING: wavelength solution to be implemented.  Using hard-coded wavelengths.")
         script_dir = os.path.dirname(os.path.realpath(__file__))
         wavelengths = np.load("{}/{}_wavelength_solution.npy".format(script_dir, instrument_filter))
-        return wavelengths
+
+    if instrument == "NIRSPEC":
+        print("WARNING: wavelength solution to be implemented.  Using hard-coded wavelengths.")
+        script_dir = os.path.dirname(os.path.realpath(__file__))
+        wavelengths = np.load("{}/prism_wavelength_solution.npy".format(script_dir))
+        
+    return wavelengths
         
