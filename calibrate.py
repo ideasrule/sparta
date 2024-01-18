@@ -163,7 +163,7 @@ def get_slopes_initial(after_gain, read_noise):
     full_error[:,TOP_MARGIN:] = error
 
     if N_grp == 2:
-        median_residuals = np.zeros(after_gain.shape)
+        median_residuals = np.zeros(after_gain.shape[1:])
     else:
         residuals = after_gain - (full_signal_estimate*np.arange(N_grp)[:,np.newaxis,np.newaxis,np.newaxis]).transpose((1,0,2,3))
         median_residuals = np.median(residuals, axis=0)
