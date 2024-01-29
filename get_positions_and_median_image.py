@@ -18,7 +18,8 @@ def fix_outliers(data, badpix, sigma=5):
         good = ~astropy.stats.sigma_clip(data[r], sigma).mask
         data[r] = np.interp(cols, cols[good], data[r][good])
 
-def chi_sqr(params, image, error, template, left=31, right=463, top=Y_CENTER-10, bottom=Y_CENTER+10, plot=False):
+#Could try left=31, right=463 for PRISM
+def chi_sqr(params, image, error, template, left=10, right=-10, top=Y_CENTER-10, bottom=Y_CENTER+10, plot=False):
     delta_y, delta_x, A = params
     ys = np.arange(image.shape[0])
     xs = np.arange(image.shape[1])
@@ -26,18 +27,11 @@ def chi_sqr(params, image, error, template, left=31, right=463, top=Y_CENTER-10,
     shifted_template = A * interpolator(ys + delta_y, xs + delta_x)
     residuals = image - shifted_template
     zs = residuals / error
-    '''zs[:,64:137] = 0
-    zs[7,187] = 0
-    zs[0:5,192:199] = 0
-    zs[9,257] = 0
-    zs[30,269] = 0
-    zs[12,344] = 0
-    zs[17,397] = 0
-    zs[13,478] = 0'''
         
     if plot:
         plt.imshow(zs)
         plt.show()
+
     return np.sum(zs[top:bottom, left:right]**2)
 
     
