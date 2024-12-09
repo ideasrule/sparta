@@ -40,7 +40,6 @@ Also compute a median image, which gets saved in median_image.npy:
 
    - To do optimal extraction:
      ```
-     python ../sparta/get_med_image.py cleaned_rateints_jw*.fits
      python ../sparta/optimal_extract.py cleaned_rateints_jw*.fits
      ```
 
