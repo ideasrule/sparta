@@ -43,7 +43,7 @@ Also compute a median image, which gets saved in median_image.npy:
      python ../sparta/optimal_extract.py cleaned_rateints_jw*.fits
      ```
 
-     The first line computes a median image from all the integrations, outputting median_image.npy.  The second line performs the optimal extraction, outputting optx1d_cleaned_rateints_jw*.fits files.
+     This outputs optx1d_cleaned_rateints_jw*.fits files.
 
 10. Gather up the fluxes and positions into one data.pkl pickle file, while filtering out the bad integrations:
 ```python ../sparta/gather_and_filter.py optx1d_rateints_jw*.fits```
