@@ -21,7 +21,7 @@ if INSTRUMENT == "NIRSPEC":
     SAT_FILE = REF_DIR + "jwst_nirspec_saturation_0028.fits"
     SUPERBIAS_FILE = REF_DIR + "jwst_nirspec_superbias_0299.fits"
     SKIP_SUPERBIAS = False
-    SKIP_REF = True #must be True for SUB512
+    SKIP_REF = False #Pretend the top and bottom 4 pixels are ref
     SKIP_FLAT = True
     TOP_MARGIN = 0
     BAD_GRPS = 0
@@ -30,10 +30,10 @@ if INSTRUMENT == "NIRSPEC":
     LEFT = 1024
     RIGHT = 1536
     ROTATE = 0
-    N_REF = 0
+    N_REF = 4
     Y_CENTER = 15
-    BKD_REG_TOP = [0, 5]
-    BKD_REG_BOT = [-6, -1]
+    BKD_REG_TOP = [0, 6]
+    BKD_REG_BOT = [-7, -1]
     X_MIN = 31
     X_MAX = 463
     SUM_EXTRACT_WINDOW = 4

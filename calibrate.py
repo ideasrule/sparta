@@ -50,7 +50,7 @@ def subtract_superbias(data):
     return data - superbias
 
 
-def subtract_ref(data, noutputs):
+def subtract_ref(data, noutputs):        
     result = np.copy(data)
     chunk_size = int(data.shape[-1] / hdul[0].header["NOUTPUTS"])
 
@@ -60,6 +60,9 @@ def subtract_ref(data, noutputs):
         c_max = (c + 1) * chunk_size
         mean = np.mean(data[:,:,:N_REF,c_min:c_max], axis=(2,3))
         result[:,:,:,c_min:c_max] -= mean[:,:,np.newaxis,np.newaxis]
+
+    if INSTRUMENT == "NIRSPEC":
+        return result
 
     #Subtract ref along sides
     mean = np.mean(result[:,:,:,:N_REF], axis=3) / 2 + np.mean(result[:,:,:,-N_REF:], axis=3) / 2
