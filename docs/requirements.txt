@@ -1,4 +1,4 @@
 sphinx>=7,<9
-sphinx-press-theme>=0.9
+sphinx-rtd-theme>=2.0.0
 sphinx-autodoc-typehints>=3.5
 # myst-parser           # only if you use Markdown
