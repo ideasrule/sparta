@@ -5,7 +5,7 @@ Simple, fast, barebones, utilitarian.  Spartan.
 --------------------------------------------------------------------------------------------------------------------------------
 **New (Oct 27, 2025)**: Photometry module + detailed documentation and tutorial.
 
-**Documentation:** https://sparta-readme.readthedocs.io/en/latest/
+**Documentation:** https://sparta-doc.readthedocs.io/en/latest/
 
 A more user-friendly spectroscopic reduction workflow for all JWST exoplanet instruments within SPARTA is planned for early 2026. Until then, examples of NIRCam/MIRI spectroscopy are available on the master branch.
 
