@@ -6,9 +6,24 @@ Example
 
 In this example we will reduce a single JWST/MIRI imaging (F1500W) from a public program.
 
-Go to ``/example/photometry``. The ``uncal`` folder already contains the raw JWST ``*_uncal.fits`` files needed for photometric reduction.
+Go to ``/example/gj3929b``. The ``uncal`` folder contains a shell script to download the necessary data files.
 
-Once inside, create a new directory called ``reduced`` to store the reduced data.
+
+.. code-block:: bash
+
+    cd example/gj3929b/uncal
+    sh MAST_download.sh
+  
+The download will take a minute. After it is done, you will see five ``_uncal.fits`` inside ``/uncal``.
+
+Now lets go back to ``/example/gj3929b``.
+
+
+.. code-block:: bash
+
+    cd ..
+
+And create a new directory called ``reduced`` to store the reduced data.
 
 .. code-block:: bash
 
