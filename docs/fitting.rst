@@ -21,8 +21,6 @@ After the fit completes:
 
 All outputs are written to the working directory.
 
-Fitting the light curve
-=======================
 Spectroscopy
 ------------
 Under construction...

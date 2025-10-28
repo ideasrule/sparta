@@ -4,7 +4,9 @@ Photometric data reduction
 Example
 --------
 
-In this example we will reduce a single JWST/MIRI imaging (F1500W) from a public program.
+In this example we will reduce the data of a single eclipse obtained with JWST/MIRI imaging (F1500W) from a public program.
+
+After ``git clone`` the repository,
 
 Go to ``/example/gj3929b``. The ``uncal`` folder contains a shell script to download the necessary data files.
 
