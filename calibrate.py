@@ -10,8 +10,15 @@ import pdb
 import gc
 import pdb
 import argparse
+import numpy
+import asdf
 from scipy.ndimage import uniform_filter
-from constants import INSTRUMENT, FILTER, SUBARRAY, TOP_MARGIN, BAD_GRPS, LEFT, RIGHT, TOP, BOT, NONLINEAR_FILE, DARK_FILE, FLAT_FILE, RNOISE_FILE, MASK_FILE, GAIN_FILE, ROTATE, SKIP_SUPERBIAS, SUPERBIAS_FILE, SKIP_FLAT, SKIP_REF, N_REF, BKD_REG_TOP, BKD_REG_BOT
+from scipy.signal import correlate
+from astropy.stats import sigma_clipped_stats
+from astropy.stats import sigma_clip
+from constants import INSTRUMENT, EMICORR_FILE, FILTER, SUBARRAY, TOP_MARGIN, BAD_GRPS, \
+LEFT, RIGHT, TOP, BOT, NONLINEAR_FILE, DARK_FILE, FLAT_FILE, RNOISE_FILE, MASK_FILE, GAIN_FILE, \
+ROTATE, SKIP_SUPERBIAS, SUPERBIAS_FILE, SKIP_FLAT, SKIP_REF, N_REF, ROW_CLOCK, FRAME_CLOCK, XSTART, XSIZE
 
 def destripe(data):
     #data: N_int x N_grp x N_row x N_col
@@ -20,7 +27,194 @@ def destripe(data):
                          axis=2)
     bkd = np.median(bkd_pixels, axis=2)
     return data - bkd[:,:,np.newaxis,:]
+
+
+def linear_fit(data):
+
+    n_groups, ny, nx = data.shape
+    t = np.arange(n_groups)  # Time index array
+
+    # Initialize arrays to store results
+    slopes = np.zeros((ny, nx))
+    intercepts = np.zeros((ny, nx))
+
+    # Compute sum values for linear regression
+    sx = np.sum(t)  # Sum of time indices
+    sxx = np.sum(t**2)  # Sum of squared time indices
+
+    for j in range(ny):  # Loop over rows
+        for i in range(nx):  # Loop over columns
+            y = data[:, j, i]  # Extract pixel time series
+
+            sy = np.sum(y)  # Sum of pixel values
+            sxy = np.sum(t * y)  # Sum of (time * pixel values)
+
+            # Compute slope (m) and intercept (b) using least-squares formula
+            m = (n_groups * sxy - sx * sy) / (n_groups * sxx - sx * sx)
+            b = (sxx * sy - sx * sxy) / (n_groups * sxx - sx * sx)
+
+            slopes[j, i] = m
+            intercepts[j, i] = b
+
+    return slopes, intercepts
+
+def get_emicorr_ref():
+    af = asdf.open(EMICORR_FILE)
+    tree = af.tree 
+    frequency = tree["frequencies"]['Hz10']['frequency']
+    phase_amplitudes = tree["frequencies"]['Hz10']['phase_amplitudes']
+
+    return frequency, phase_amplitudes
+
+def emicorr(data, frequency, ref_pa, bin_numbers = 500, dataname = None):
+    print("EmiCorr going on......")
+    print("Correct for {} Hz".format(frequency))
+    data = np.array(hdul[1].data, dtype=float)
+    print(data.shape)
+    stacked = 0
+    for i in range(4):
+        stacked += 0.25 * data[:,:,:,i::4]
+
+
+    nints, ngroups, ny, nx = data.shape
+    nx4 = int(nx/4)
+    nsamples = 1
+    xsize = XSIZE
+    xstart = XSTART
+    colstop = int(xsize / 4 + xstart - 1)
+    time_read_each_row = ROW_CLOCK
+    time_read_frame = FRAME_CLOCK
+    phaseall = np.zeros((nints, ngroups, ny, nx4))
+
+    residualsall = np.zeros((nints, ngroups, ny, nx4))
+    start_time = 0
+    for n in range(nints):
+        slopes, intercepts = linear_fit(stacked[n])
     
+        times_this_int = np.zeros((ngroups, ny, nx4), dtype = "ulonglong")
+        for k in range(ngroups):   # frames
+            residualsall[n, k]  = stacked[n, k] - (slopes * k + intercepts)
+            for j in range(ny):    # rows
+                ### nsamples= 1 for fast, 9 for slow (from metadata)
+                times_this_int[k, j, :] = np.arange(nx4, dtype='ulonglong') * nsamples + start_time
+    
+                if colstop == 258:
+                    times_this_int[k,j,nx4-1] = times_this_int[k,j,nx4-1] + 2**32
+                    ### Do not include the last row
+                start_time += time_read_each_row
+        
+        if n == 10:
+            plt.figure()
+            plt.plot(np.arange(ngroups), np.arange(ngroups) * slopes[25, 25] + intercepts[25, 25])
+            plt.plot(stacked[n, :,25,25])
+            plt.savefig("emicorr_linear_int10.png")
+
+    
+    
+        period_in_pixels = (1./frequency) / 10.0e-6
+        #print("Period in pixels is {}".format(period_in_pixels))
+    
+        phase_this_int = times_this_int / period_in_pixels
+        phaseall[n,:,:,:] = phase_this_int - phase_this_int.astype('ulonglong')
+        start_time += time_read_frame
+
+
+    binned_phases = np.linspace(0, 1, bin_numbers)
+    binned_vals = np.zeros(len(binned_phases))
+    dp = np.median(np.diff(binned_phases))
+
+    for i in range(len(binned_phases)):
+        cond = (phaseall > binned_phases[i] - dp/2) & (phaseall < binned_phases[i] + dp/2)
+        mean, median, std = sigma_clipped_stats(residualsall[cond])
+        binned_vals[i] = median
+
+    binned_vals -= np.mean(binned_vals)
+
+    #print(ref_pa)
+    correlation = correlate(binned_vals - np.mean(binned_vals), ref_pa - np.mean(ref_pa), mode='full')
+    lags = np.arange(-len(ref_pa) + 1, len(ref_pa))  # Lag values
+    best_lag = lags[np.argmax(correlation)]
+    phase_shift = best_lag
+
+    shifted_pa = np.roll(ref_pa, phase_shift)
+
+    phase_amplitudes_period = np.interp(np.linspace(0,1,int(period_in_pixels)+1), np.linspace(0,1,500), shifted_pa)
+    m, b = np.polyfit(shifted_pa , binned_vals, 1)
+    vals_period = np.interp(np.linspace(0,1,int(period_in_pixels)+1), np.linspace(0,1,500), binned_vals)
+    #import pdb
+    #pdb.set_trace()
+    #pa_final = phase_amplitudes_period * m
+    pa_final = vals_period
+    #import pdb
+    #pdb.set_trace()
+
+    noise4 = pa_final[(phaseall * period_in_pixels).astype(int)]
+
+    noise = np.zeros((nints, ngroups, ny, nx))   # same size as input data
+    noise_x = np.arange(nx4) * 4
+    for k in range(4):
+        noise[:, :, :, noise_x + k] = noise4
+
+    plt.figure()
+    plt.plot(np.arange(len(pa_final)), pa_final)
+    #plt.plot(np.arange(len(binned_vals)),binned_vals)
+    plt.savefig("emicorr_profile_"+dataname+".png")
+
+    return data - noise
+
+
+def sigma_clip_images(data, sigma=3.0, maxiters=5):
+    """
+    Perform sigma clipping on the last two dimensions (images) of a 4D array.
+    
+    Parameters:
+    - data: np.ndarray, shape (T1, T2, H, W) where (H, W) are image dimensions
+    - sigma: float, the number of standard deviations to use for clipping
+    - maxiters: int, maximum number of clipping iterations
+    
+    Returns:
+    - clipped_data: np.ndarray, same shape as data but with outliers replaced with NaN
+    - mask: np.ndarray, same shape as data, where True indicates clipped values
+    """
+    # Apply sigma clipping along the last two dimensions (spatial axes)
+    clipped_result = sigma_clip(data, sigma=sigma, maxiters=maxiters, axis=(2,3), masked=True)
+
+    # Extract the clipped data and mask
+    clipped_data = clipped_result.filled(0)  # Replace masked values with NaN
+    mask = clipped_result.mask  # Boolean mask, True for clipped values
+    
+    return clipped_data, mask
+
+def row_by_row_background_subtraction(data):
+    print("doing row by row subtraction")
+    nints, ngroups, nx, ny = data.shape
+    bkg_total = numpy.zeros((nints, ngroups, nx, ny))
+
+    center = (69, 61)  # (row, col)
+    width = 80  # Square width
+
+    x_start = center[0] - width // 2
+    x_end = center[0] + width // 2
+    y_start = center[1] - width // 2
+    y_end = center[1] + width // 2
+
+    mask_new = np.zeros(data.shape, dtype = bool)
+    mask_new[:,:, y_start:y_end, x_start:x_end] = True
+    masked_data = np.where(~mask_new, data, 0)
+
+    clipped_data, _ = sigma_clip_images(masked_data)
+
+    bkg = np.median(clipped_data, axis = 2)
+    print(bkg.shape)
+    fig, ax = plt.subplots(1,2)
+    ax[0].imshow(masked_data[0,-1], vmax = np.percentile(masked_data[0,-1], 0.95), vmin = np.percentile(masked_data[0,-1], 0.05))
+    ax[0].imshow(mask_new[0,-1])
+    ax[0].scatter(center[0], center[1])
+    ax[1].imshow(np.zeros((data.shape[2], data.shape[3])) + bkg[0,-1,numpy.newaxis,:], vmax = np.percentile(bkg[0,-1], 0.95), vmin = np.percentile(bkg[0,-1], 0.05))
+    #plt.colorbar()
+    plt.show()
+
+    return data - bkg[:,:,numpy.newaxis,:]
 
 def get_mask():
     with astropy.io.fits.open(MASK_FILE) as hdul:
@@ -50,7 +244,7 @@ def subtract_superbias(data):
     return data - superbias
 
 
-def subtract_ref(data, noutputs):        
+def subtract_ref(data, noutputs):
     result = np.copy(data)
     chunk_size = int(data.shape[-1] / hdul[0].header["NOUTPUTS"])
 
@@ -60,9 +254,6 @@ def subtract_ref(data, noutputs):
         c_max = (c + 1) * chunk_size
         mean = np.mean(data[:,:,:N_REF,c_min:c_max], axis=(2,3))
         result[:,:,:,c_min:c_max] -= mean[:,:,np.newaxis,np.newaxis]
-
-    if INSTRUMENT == "NIRSPEC":
-        return result
 
     #Subtract ref along sides
     mean = np.mean(result[:,:,:,:N_REF], axis=3) / 2 + np.mean(result[:,:,:,-N_REF:], axis=3) / 2
@@ -97,8 +288,10 @@ def apply_nonlinearity(data):
 
 def subtract_dark(data, nframes, groupgap):
     with astropy.io.fits.open(DARK_FILE) as hdul:
-        dark = np.array(np.rot90(hdul[1].data, ROTATE, (-2,-1)), dtype=np.float64)
-        dq = np.array(np.rot90(hdul["DQ"].data, ROTATE, (-2,-1)))
+        #substrt_x = int(hdul[0].header["SUBSTRT1"]) - 1
+        #substrt_y = int(hdul[0].header["SUBSTRT2"]) - 1
+        dark = np.array(hdul[1].data, dtype=np.float64)
+        dq = np.array(hdul["DQ"].data)
         if dark.ndim == 4:
             print("Warning: skipping first {} integrations of dark".format(dark.shape[0] - 1))
             dark = dark[-1]
@@ -123,21 +316,24 @@ def subtract_dark(data, nframes, groupgap):
         mask = np.zeros(dq.shape, dtype=bool)
     else:
         mask = dq > 0
+    #import pdb
+    #pdb.set_trace()
     return result, mask
 
 
-def get_slopes_initial(after_gain, read_noise):
+def get_slopes_initial(after_gain, read_noise, bad_grps=0):
     N_grp = after_gain.shape[1]
-    if N_grp > 3 and INSTRUMENT=="MIRI":
+    if N_grp > 3 and "MIRI" in INSTRUMENT:
         ignore_last = 1
+        print("Ignore the last group in ramp fitting")
     else:
         ignore_last = 0
 
-    N = N_grp - 1 - ignore_last 
+    N = N_grp - 1 - ignore_last - bad_grps
     j = np.array(np.arange(1, N + 1), dtype=np.float64)
 
     R = read_noise[TOP_MARGIN:]
-    cutout = after_gain[:,:N_grp-ignore_last,TOP_MARGIN:] #reject last group
+    cutout = after_gain[:,bad_grps:N_grp-ignore_last,TOP_MARGIN:] #reject last group
     
     signal_estimate = (cutout[:,-1] - cutout[:, 0]) / N
     error = np.zeros(signal_estimate.shape)
@@ -175,15 +371,22 @@ def get_slopes_initial(after_gain, read_noise):
     return full_signal_estimate, full_error, median_residuals
 
 
-def get_slopes(after_gain, read_noise, max_iter=50, sigma=14, bad_grps=0):
+def get_slopes(after_gain, read_noise, max_iter=100, sigma=5, bad_grps=0):
     N_grp = after_gain.shape[1]
-    N = N_grp - 1 - bad_grps
-    j = np.array(np.arange(1, N + 1), dtype=np.float64)
+    if N_grp > 3 and "MIRI" in INSTRUMENT:
+        ignore_last = 1
+        print("Ignore the last group in ramp fitting")
+    else:
+        ignore_last = 0
 
+
+    N = N_grp - 1 - ignore_last - bad_grps
+    j = np.array(np.arange(1, N + 1), dtype=np.float64)
     R = read_noise[TOP_MARGIN:]
-    cutout = after_gain[:,bad_grps:,TOP_MARGIN:]
+    cutout = after_gain[:,bad_grps:N_grp-ignore_last,TOP_MARGIN:]
 
     diff_array = np.diff(cutout, axis=1)
+
     signal_estimate = np.clip(np.median(diff_array, axis=1), 0, None)
     error = np.zeros(signal_estimate.shape)
     noise = np.sqrt(2*R[np.newaxis,]**2 + signal_estimate)
@@ -217,6 +420,7 @@ def get_slopes(after_gain, read_noise, max_iter=50, sigma=14, bad_grps=0):
             pixel_bad_mask[i][slightly_bad] = True
                 
             signal_estimate[i] = np.sum(diff_array[i].transpose(1,2,0) * weights, axis=2) / np.sum(weights, axis=2)
+   
             error[i] = 1. / np.sqrt(np.sum(weights, axis=2))
 
         num_changed = np.sum(old_bad_mask != bad_mask)
@@ -228,7 +432,7 @@ def get_slopes(after_gain, read_noise, max_iter=50, sigma=14, bad_grps=0):
     #Fill in borders in order to maintain size
     full_signal_estimate = (after_gain[:, -1] - after_gain[:, 0]) / N
     full_signal_estimate[:,TOP_MARGIN:] = signal_estimate
-        
+
     full_error = np.ones(full_signal_estimate.shape) * np.inf
     full_error[:,TOP_MARGIN:] = error
 
@@ -262,8 +466,14 @@ def set_slopes_saturated(after_gain, signal, grps_to_sat):
             
 def apply_flat(signal, error, include_flat_error=False):
     with astropy.io.fits.open(FLAT_FILE) as hdul:
-        flat = np.array(np.rot90(hdul["SCI"].data, ROTATE), dtype=np.float64)
-        flat_err = np.array(np.rot90(hdul["ERR"].data, ROTATE), dtype=np.float64)
+        substrt_x = int(hdul[0].header["SUBSTRT1"]) - 1
+        substrt_y = int(hdul[0].header["SUBSTRT2"]) - 1
+        flat = np.array(np.rot90(hdul['SCI'].data, ROTATE)[
+            TOP-substrt_y : BOT-substrt_y,
+            LEFT-substrt_x : RIGHT-substrt_x], dtype=np.float64)
+        flat_err = np.array(np.rot90(hdul['ERR'].data, ROTATE)[
+            TOP-substrt_y : BOT-substrt_y,
+            LEFT-substrt_x : RIGHT-substrt_x], dtype=np.float64)
 
     invalid = np.isnan(flat)
     flat[invalid] = 1
@@ -297,7 +507,8 @@ args = parser.parse_args()
 for filename in args.filenames:
     print("Processing", filename)
     hdul = astropy.io.fits.open(filename)
-    assert(hdul[0].header["INSTRUME"] == INSTRUMENT and hdul[0].header["FILTER"] == FILTER and hdul[0].header["SUBARRAY"] == SUBARRAY)
+
+    #assert(hdul[0].header["INSTRUME"] == INSTRUMENT and hdul[0].header["FILTER"] == FILTER and hdul[0].header["SUBARRAY"] == SUBARRAY)
     
     #Assumptions for dark current subtraction
     nframes = hdul[0].header["NFRAMES"]
@@ -307,9 +518,28 @@ for filename in args.filenames:
     data = np.array(
         np.rot90(hdul[1].data, ROTATE, axes=(2,3)),
         dtype=np.float64)
+
+        
+
+    start = time.time()
+    frequency, ref_pa = get_emicorr_ref()
+
+    data = emicorr(data, frequency, ref_pa, dataname=filename.split("/")[-1].split(".")[0])
+    end = time.time()
+
+    print("EmiCorr takes", end - start)
+    if SUBARRAY == 'FULL': 
+        data = data[:,:,TOP:BOT,LEFT:RIGHT]
+        print("Data cropped to", TOP, BOT, LEFT, RIGHT)
+
     
+    #data = data[:,5:]
+    print("data shape is", data.shape)
     N_int, N_grp, N_row, N_col = data.shape
     mask = get_mask()
+    #import pdb
+    #pdb.set_trace()
+    #data = row_by_row_background_subtraction(data)
 
     if not SKIP_SUPERBIAS:
         print("Subtracting superbias")
@@ -320,7 +550,9 @@ for filename in args.filenames:
         data = subtract_ref(data, hdul[0].header["NOUTPUTS"])
 
     print("Applying non-linearity correction")
+
     data, dq = apply_nonlinearity(data)
+    np.save(filename.split(".")[-2].split("_")[-2]+"_linearity", data)
     mask |= dq
     gc.collect()
 
@@ -335,13 +567,15 @@ for filename in args.filenames:
 
     print("Applying gain correction")
     gain = get_gain()
+
     data = data * gain
+    
 
     read_noise = get_read_noise(gain)
     print("Getting slopes 1")
 
     #original_data = np.copy(data)
-    #data = data[:,0:-1]
+
     signal, error, residuals1 = get_slopes_initial(data, read_noise)
     if args.median_residuals is not None:
         data -= np.load(args.median_residuals)
@@ -354,13 +588,16 @@ for filename in args.filenames:
     data[:,:,:,-1] = 0 #sometimes anomalous
     signal, error, per_int_mask, residuals2 = get_slopes(data, read_noise)
 
+
     if args.grps_to_sat is not None:
         set_slopes_saturated(data, signal, args.grps_to_sat)
     
     if not SKIP_FLAT:
         print("Applying flat")
         signal, error, flat_err = apply_flat(signal, error)
-        
+    signal *= (data.shape[1] - 1)
+    error *= (data.shape[1] - 1)
+    #signal *= 46
     per_int_mask = per_int_mask | mask
     per_int_mask = per_int_mask | np.isnan(signal)
     sci_hdu = astropy.io.fits.ImageHDU(np.cpu(signal), name="SCI")
