@@ -275,7 +275,7 @@ apsize_list = [4]
 
 #annulus_r_in_list = [10,12,14,16,18,20]
 #annulus_r_out_list = [14,16,18,20,22,24,26,28,30,32]
-annulus_r_in_list = [10]
+annulus_r_in_list = [26]
 annulus_r_out_list = [30]
 #annulus_r_out_list =  [20]
 #if os.path.exists('mad_dict.txt'):

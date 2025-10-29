@@ -147,6 +147,7 @@ def load_data_csv(data_path, start_wave, end_wave, exclude=[[0,300]]):
         df["xwidth"].to_numpy()[mask],
     )
 
+
     clean_flux = sigma_clip(fluxes, sigma=5)
     mask = clean_flux.mask
     fluxes = fluxes[~mask]

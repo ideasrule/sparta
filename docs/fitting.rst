@@ -3,7 +3,14 @@ Fitting the light curve
 Photometry
 ----------
 
-Update the planetary and fitting parameters for your run in the configuration file ``planet.cfg``.  
+Update the planetary and fitting parameters for your run in the configuration file ``planet.cfg``. 
+
+For tutorial purpose, there is a ready-made configuration file ``gj3929b.cfg`` in the ``example/gj3929b/eclipse_fit`` directory.
+
+.. code-block:: console
+
+   cd eclipse_fit
+
 Then run the fitting script:
 
 .. code-block:: console
@@ -23,4 +30,4 @@ All outputs are written to the working directory.
 
 Spectroscopy
 ------------
-Under construction...
+Under active construction...

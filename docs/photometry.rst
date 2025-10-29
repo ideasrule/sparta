@@ -18,7 +18,7 @@ Go to ``/example/gj3929b``. The ``uncal`` folder contains a shell script to down
   
 The download will take a minute. After it is done, you will see five ``_uncal.fits`` inside ``/uncal``.
 
-Now lets go back to ``/example/gj3929b``.
+Now let's go back to ``/example/gj3929b``.
 
 
 .. code-block:: bash
@@ -39,27 +39,31 @@ Step one is to run the calibration pipeline:
 
 .. code-block:: bash
 
-    python ../sparta/calibrate.py ../uncal/jw*fits
+    python ../../../calibrate.py ../uncal/jw*fits
 
 This will create ``rateint.fits`` in the output directory. 
 The ``SCI`` layer contains either DN per slope or electron number per slope depending on whether the gain scale step is applied. 
 When the script is running, steps performed are printed to your terminal, and diagnostic plots are also generated for the ``emicorr`` step.
 
-Now run 
+Now let's make a new directory to save plots:
 
 .. code-block:: bash
 
-    python ../sparta/ap_extract.py ./rateints*
+    mkdir img
 
-to do classic aperture photometry and extract the light curve.
+.. code-block:: bash
+
+    python ../../../ap_extract.py -f ./rateints*
+
+to do classic aperture photometry
 
 or
 
 .. code-block:: bash
 
-    python ../sparta/opt_ap_extract.py ./rateints*
+    python ../../../opt_ap_extract.py -r ./rateints*
 
-to do optimal aperture photometry and extract the light curve.
+to do optimal aperture photometry to extract the light curve.
 
 
 Before running ``ap_extract.py``, make sure to update the following parameters:
