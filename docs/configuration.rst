@@ -62,13 +62,13 @@ Each row defines a parameter with columns:
    * - **Parameter**
      - **Description**
    * - ``fitting_method``
-     - Inference engine (e.g., ``emcee`` for MCMC or ``dynesty`` for nested sampling).
+     - Sampling engine (e.g., ``emcee`` for MCMC or ``dynesty`` for nested sampling).
    * - ``mcmc_nwalkers``
      - Number of walkers for ``emcee``.
    * - ``mcmc_burnin``
-     - Number of burn-in steps (discarded) per walker.
+     - Number of burn-in steps (discarded).
    * - ``mcmc_production``
-     - Number of production steps (kept) per walker.
+     - Number of production steps (kept).
    * - ``dynesty_nlive``
      - Live points for nested sampling.
    * - ``dynesty_bound``
@@ -80,9 +80,9 @@ Each row defines a parameter with columns:
    * - ``joint_fit``
      - If ``True``, fit multiple datasets simultaneously.
    * - ``start_wave``
-     - Lower wavelength bound (um).
+     - Lower wavelength bound (nm).
    * - ``end_wave``
-     - Upper wavelength bound (um).
+     - Upper wavelength bound (nm).
    * - ``exclude``
      - Integrations to exclude. Should be a list of lists, e.g., [[start1, end1], [start2, end2]...].
    * - ``data_path``
@@ -112,23 +112,22 @@ Each row defines a parameter with columns:
    * - ``t_secondary``
      - Secondary-eclipse mid-time (BJD).
    * - ``Rs``
-     - Stellar radius (R☉).
+     - Stellar radius.
    * - ``limb_dark``
-     - LD law (``uniform``, ``linear``, ``quadratic``, ``kipping2013``, ``squareroot``,
-       ``logarithmic``, ``exponential``, ``3-parameter``, ``4-parameter``).
+     - LD law (``uniform``, ``linear``, ``quadratic``, ``kipping2013``. Only those supported by ``batman`` are allowed).
    * - ``q1 and q2``
      - Limb-darkening coefficient
    * - ``Fstar``
      - Stellar baseline flux normalization.
    * - ``m``
-     - Linear baseline slope.
+     - Linear slope.
    * - ``A``
-     - Phase-curve amplitude term.
+     - Exponential ramp amplitude term.
    * - ``tau``
-     - Phase lag / thermal response parameter.
+     - Exponential ramp time scale.
    * - ``x_coeff``
      - Linear decorrelation vs. detector x-position.
    * - ``y_coeff``
      - Linear decorrelation vs. detector y-position.
    * - ``error_factor``
-     - Multiplicative inflation of per-point uncertainties.
+     - Multiplicative inflation of uncertainties.
