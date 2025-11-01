@@ -371,7 +371,6 @@ def main():
             all_fluxes.append(fluxes)
             all_errors.append(errors)
             all_delta_x.append(delta_x)
-            print('all_delta_x', all_delta_x)
             all_delta_y.append(delta_y)
             all_delta_xw.append(delta_xw)
             all_delta_yw.append(delta_yw)
@@ -409,12 +408,11 @@ def main():
     else:
         fit_period_gp = False
 
-    #print(fit_period_gp)
+
     initial_batman_params = build_initial_batman_params(param_info, free_dict, fixed_dict)
 
     eclipse_model = batman.TransitModel(initial_batman_params, bjds, transittype='secondary')
-    #import pdb
-    #pdb.set_trace()
+
 
     def lnprob(theta, plot_result=False):
 

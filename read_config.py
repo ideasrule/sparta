@@ -1,12 +1,6 @@
 
 import shlex
 
-
-
-# =============================================================================
-# 1) CONFIG‐FILE READER
-# =============================================================================
-
 def read_config(path):
     """
     Read a parameter‐configuration file of the format you showed.  
@@ -15,8 +9,8 @@ def read_config(path):
       (a) 3 tokens:  Name, Value, Free?                 (for fixed/independent),
       (b) 6 tokens:  Name, Value, Free?, PriorPar1, PriorPar2, PriorType  (for free).
 
-    Free? ∈ {'free','fixed','independent'}.
-    PriorType ∈ {'U','LU','N'}.
+    Free? shoulde be {'free','fixed','independent'}.
+    PriorType shoule be {'U','LU','N'}.
 
     Returns
     -------
