@@ -3,7 +3,6 @@ import numpy as np
 import emcee
 import matplotlib.pyplot as plt
 from astropy.stats import sigma_clip
-from algorithms import bin_data
 import copy
 import traceback
 import os
@@ -15,6 +14,55 @@ import pywt
 from dynesty import NestedSampler
 from dynesty import plotting as dyplot
 import dynesty.utils
+import celerite2
+from celerite2 import terms
+
+def reduced_chisq(obs, model, err=None, n_free_params=None) :
+    """
+    Compute reduced chi-squared:
+        χ²_r = χ² / dof
+
+    """
+    obs = np.asarray(obs)
+    model = np.asarray(model)
+    N = obs.size
+
+    p = int(n_free_params)
+
+    dof = N - p
+    if dof <= 0:
+        raise ValueError(f"Degrees of freedom non-positive: N={N}, p={p} gives dof={dof}")
+
+    delta = obs - model
+
+    if err is None:
+        raise ValueError("Either err or cov must be provided.")
+    err = np.asarray(err)
+    if np.any(err <= 0):
+        raise ValueError("All uncertainties must be positive.")
+    chi2 = np.sum((delta / err) ** 2)
+
+    chi2_r = chi2 / dof
+    return chi2_r, chi2, dof
+
+
+def bin_lightcurve(time, flux, bin_size, err=None):
+
+    n_bins = len(time) // bin_size
+    binned_time = np.zeros(n_bins)
+    binned_flux = np.zeros(n_bins)
+    
+    for i in range(n_bins):
+        start = i * bin_size
+        end = start + bin_size
+        binned_time[i] = np.mean(time[start:end])
+        binned_flux[i] = np.mean(flux[start:end])
+    
+    if err is not None:
+        binned_err = np.sqrt(np.sum(err[start:end]**2)) / bin_size
+        return binned_time, binned_flux, binned_err
+    
+    return binned_time, binned_flux
 
 def get_batman_params(t0, per, rp, a, inc, limb_dark_coeffs, \
                       t_secondary=None, w=0, ecc=0, limb_dark_law="nonlinear"):
@@ -51,77 +99,80 @@ def get_planet_flux(eclipse_model, batman_params, t0, period, bjds, Fp, C1, D1,
 
     fine_args = w*(bjds - t_secondary)
     coarse_args = np.linspace(fine_args[0], fine_args[-1], 1000)
-    #import pdb
-    #pdb.set_trace()
+
     assert(np.max(np.diff(fine_args)) < 2*(coarse_args[1] - coarse_args[0]))
     
     planet_sine = np.sin(coarse_args)
     planet_cosine = np.cos(coarse_args)
 
-    #planet_sine = np.sin(w*bjds)
-    #planet_cosine = np.cos(w*bjds)
     
     Lplanet_coarse = Fp + C1*planet_cosine + D1*planet_sine - C1
     
     if C2 is not None:        
         planet_cosine2 = np.cos(2*coarse_args)
         Lplanet_coarse += C2*planet_cosine2 - C2
-        #assert(False)
-        #print("C2")
+
     if D2 is not None:
         planet_sine2 = np.sin(2*coarse_args)
         Lplanet_coarse += D2*planet_sine2
-        #assert(False)
-        #print("D2")
+
 
     Lplanet = np.interp(fine_args, coarse_args, Lplanet_coarse)
     Lplanet *= (eclipse_model.light_curve(batman_params) - 1)
-    #plt.plot(eclipse_model.light_curve(batman_params) - 1)
-    #plt.show()
     
     if pdb:
         pdb.set_trace()
     return Lplanet
 
 
-def plot_fit_and_residuals(phases, binsize, Lobserved, Lexpected, gp=None, bjds=None):
-    if gp is not None:
-        Lexpected += gp.predict(Lobserved-Lexpected, bjds, return_cov=False)
-    residuals = Lobserved - Lexpected
-    
-    f, axarr = plt.subplots(2, sharex=True)
-    #f.tight_layout()
-    fontsize = 10
-    plt.xlabel("Orbital phase", fontsize=fontsize)
-    #plt.xlim(-0.6, 0.6)
-    
-    '''#axarr[0].set_ylim([0.997, 1.001])
-    #axarr[0].set_ylim([0.985, 1.006])
-    axarr[0].scatter(bin_data(phases,binsize), bin_data(Lobserved - star_variation, binsize), s=10, c='blue', edgecolors='black')
-    axarr[0].plot(bin_data(phases,binsize), bin_data(Lexpected - star_variation,binsize), color="r")
-    axarr[0].ticklabel_format(useOffset=False)
-    axarr[0].set_ylabel("Relative flux", fontsize=fontsize)'''
+def plot_fit_and_residuals(times, data, err, model, binsize, plot_phase = False, period = None, t0 = None, astro_model=None, systematics=None):
+    fig, ax = plt.subplots(2, 1, figsize=(10, 8), sharex=True)
+    res = data - model
+    if plot_phase and period is not None and t0 is not None:
+        phase = ((times - t0) % period) / period
+        ax[0].scatter(phase, data, s=1, label='Data', size=1, color='black', zorder = 0, alpha = 0.3)
+        binned_times, binned_data, binned_err = bin_lightcurve(phase, data, binsize, err)
+        ax[0].errorbar(binned_times, binned_data, yerr=binned_err, fmt='o', color='red', label='Binned Data', zorder = 1, ls='')
+        ax[0].plot(phase, model, color='blue', label='Model', zorder = 2)
+        
+        ax[1].scatter(phase, res, s=1, color='black', zorder = 0, alpha = 0.3)
+        binned_times, binned_res = bin_lightcurve(phase, res, binsize)
+        ax[1].scatter(binned_times, binned_res, size=5, color='red', label='Binned Residuals', zorder = 1)
+        ax[1].axhline(0, color='blue', ls='--', zorder = 2)
+        ax[1].set_xlabel('Phase')
 
-    #axarr[1].set_ylim([0.9996, 1.0008])
-    #axarr[1].set_ylim([0.998, 1.006])
-    axarr[0].scatter(bin_data(phases,binsize), bin_data(Lobserved, binsize), s=10, c='blue', edgecolors='black')
-    axarr[0].plot(bin_data(phases,binsize), bin_data(Lexpected, binsize), color="r")
-    axarr[0].set_ylabel("Relative flux", fontsize=fontsize)
-    axarr[0].ticklabel_format(useOffset=False)
-    axarr[0].set_ylim([0.9985, max(Lobserved)])
-    #axarr[0].set_ylim([0.9985, 1.0015])
 
-    #axarr[2].set_ylim([-0.0005, 0.0005])
-    #axarr[2].set_ylim([-0.002, 0.002])
-    axarr[1].scatter(bin_data(phases,binsize), bin_data(residuals,binsize), s=10, c='blue', edgecolors='black')
-    axarr[1].set_ylabel("Relative flux", fontsize=fontsize)
-    
+    else:
+        ax[0].scatter(times, data, s=1, label='Data', color='black', zorder = 0, alpha = 0.3)
+        binned_times, binned_data, binned_err = bin_lightcurve(times, data, binsize, err)
+        ax[0].errorbar(binned_times, binned_data, yerr=binned_err, fmt='o', color='red', label='Binned Data', zorder = 1, ls='')
+        ax[0].plot(times, model, color='blue', label='Model', zorder = 2)
+
+        ax[1].scatter(times, res, s=1, color='black', zorder = 0, alpha = 0.3)
+        binned_times, binned_res = bin_lightcurve(times, res, binsize)
+        ax[1].scatter(binned_times, binned_res, s=5, color='red', label='Binned Residuals', zorder = 1)
+        ax[1].axhline(0, color='blue', ls='--', zorder = 2)
+        ax[1].set_xlabel('Phase')
+    plt.savefig('fit_and_residuals.png', dpi=300)
+    plt.show()
+    if astro_model is not None:
+        plt.figure(figsize=(10, 4))
+        plt.plot(times, astro_model, color='green', label='Astro Model')
+        plt.xlabel('Time')
+        plt.savefig('astro_model.png', dpi=300)
+        #plt.show()
+    if systematics is not None:
+        plt.figure(figsize=(10, 4))
+        plt.plot(times, systematics, color='orange', label='Systematics')
+        plt.xlabel('Time')
+        plt.savefig('systematics.png', dpi=300)
+        #plt.show()
+
 def lnprob_transit(params, initial_batman_params, transit_model, bjds,
                    fluxes, errors, y, x, initial_t0, plot_result=False,
                    return_residuals=False,
                    output_filename="white_lightcurve.txt"):
     transit_offset, rp, a_star, b, error_factor, Fstar, A, tau, y_coeff, x_coeff, m, q1, q2 = params
-    #a_star = 7.61
     inc = np.arccos(b/a_star) * 180/np.pi
 
     u1 = 2*np.sqrt(q1) * q2
@@ -129,7 +180,6 @@ def lnprob_transit(params, initial_batman_params, transit_model, bjds,
     if q1 < 0 or q1 > 1 or q2 < 0 or q2 > 1: return -np.inf
     batman_params = initial_batman_params
     batman_params.u = [u1, u2]
-    #batman_params.u[1] = u2 # = [initial_batman_params.u[0], u2]
     batman_params.t0 = initial_t0 + transit_offset
     batman_params.rp = rp
     batman_params.a = a_star
@@ -148,14 +198,9 @@ def lnprob_transit(params, initial_batman_params, transit_model, bjds,
     systematics = Fstar * (1 + A*np.exp(-delta_t/tau) + y_coeff * y + x_coeff * x + m * (bjds - np.mean(bjds)))
     astro = transit_model.light_curve(batman_params)
     model = systematics * astro
-
-    phases = (bjds-batman_params.t0)/batman_params.per
-    phases -= np.round(np.median(phases))
     
     residuals = fluxes - model
-    if abs(batman_params.t0 - 59820.937747) < 1e-3:
-        #assert(False)
-        residuals[np.logical_and(phases > -0.0024, phases < 0.007)] = 0
+
     
     result = -0.5*(np.sum(residuals**2/scaled_errors**2 - np.log(1.0/scaled_errors**2)))
 
@@ -167,12 +212,9 @@ def lnprob_transit(params, initial_batman_params, transit_model, bjds,
                     bjds[i], fluxes[i] / Fstar, scaled_errors[i] / Fstar,
                     systematics[i] / Fstar, astro[i], model[i] / Fstar,
                     residuals[i] / Fstar))
-                
-        binsize = len(fluxes) // 100
-
-        plot_fit_and_residuals(phases, binsize, fluxes / systematics, astro)
-        plt.figure()
-        plt.scatter(bjds, systematics)
+            f.write("\n")
+        plot_fit_and_residuals(bjds, fluxes, scaled_errors, model, binsize=len(fluxes)//100, 
+                               systematics=systematics)
         
         print("STD", np.std(residuals))
         
@@ -191,7 +233,7 @@ def lnprob_transit_limited(params, batman_params, transit_model, bjds,
                            fluxes, errors, y, x, fix_tau=None, plot_result=False,
                            return_residuals=False, wavelength=None, output_filename="lightcurves.txt"):
     batman_params = copy.deepcopy(batman_params)
-    depth, error_factor, Fstar, A, tau, y_coeff, x_coeff, m, u1, u2 = params
+    depth, error_factor, Fstar, A, tau, y_coeff, x_coeff, m, q1, q2 = params
     
     if Fstar <= 0:
         return -np.inf
@@ -201,30 +243,21 @@ def lnprob_transit_limited(params, batman_params, transit_model, bjds,
     if tau < 0 or tau > 0.1: return -np.inf
     if fix_tau is not None:
         tau = fix_tau
-    #if q1 <= 0 or q1 >= 1 or q2 <= 0 or q2 >= 1: return -np.inf
+    if q1 <= 0 or q1 >= 1 or q2 <= 0 or q2 >= 1: return -np.inf
 
-    #q1 = 0.0334
-    #q2 = 0.445
 
-    #q1 = 0.050
-    #q2 = 0.08
-
-    #q1 = 0.04
-
-    #q1_init = (batman_params.u[0] + batman_params.u[1])**2
-    #q2_init = 0.5 * batman_params.u[0] / (batman_params.u[0] + batman_params.u[1])
     
-    #u1 = 2*np.sqrt(q1) * q2
-    #u2 = np.sqrt(q1) * (1 - 2*q2)
+    u1 = 2*np.sqrt(q1) * q2
+    u2 = np.sqrt(q1) * (1 - 2*q2)
 
     rp = np.sqrt(depth)
 
-    #lnprior = -0.5 * ((q1 - q1_init)**2 + (q2 - q2_init)**2) / 0.1**2
+
     lnprior = -0.5 * ((u1 - batman_params.u[0])**2 + (u2 - batman_params.u[1])**2) / 0.1**2
-    #lnprior = 0
+
     
-    #batman_params.u[1] = u2# = [u1, u2]
-    #batman_params.u = [u1, u2]
+
+    batman_params.u = [u1, u2]
     batman_params.rp = rp
     delta_t = bjds - bjds[0]
     systematics = Fstar * (1 + A*np.exp(-delta_t/tau) + y_coeff * y + x_coeff * x + m * (bjds - np.mean(bjds)))
@@ -237,10 +270,6 @@ def lnprob_transit_limited(params, batman_params, transit_model, bjds,
     phases = (bjds-batman_params.t0)/batman_params.per
     phases -= np.round(np.median(phases))
 
-    if abs(batman_params.t0 - 59820.937747) < 1e-3:
-        #assert(False)
-        #residuals[np.logical_and(phases > -0.0024, phases < 0.007)] = 0
-        residuals[np.logical_and(phases > -5.19e-4, phases < 6.95e-3)] = 0
         
     result = lnprior -0.5*(np.sum(residuals**2/scaled_errors**2 - np.log(1.0/scaled_errors**2)))
 
@@ -257,12 +286,10 @@ def lnprob_transit_limited(params, batman_params, transit_model, bjds,
                                                      residuals[i] / Fstar))
 
                 
-        binsize = len(fluxes) // 100
-        #residuals -= np.mean(residuals)
-        phases = (bjds-batman_params.t0)/batman_params.per
-        phases -= np.round(np.median(phases))
 
-        plot_fit_and_residuals(phases, binsize, fluxes / systematics, astro)
+
+        plot_fit_and_residuals(bjds, fluxes, scaled_errors, model, binsize=len(fluxes)//100, 
+                               systematics=systematics)
     
         plt.figure()
         plt.scatter(bjds, systematics)
@@ -273,10 +300,7 @@ def lnprob_transit_limited(params, batman_params, transit_model, bjds,
         
     if np.random.randint(0, 1000) == 0:
         print(result/len(residuals), rp**2, np.median(scaled_errors), error_factor, Fstar, np.median(np.abs(residuals)), rp)
-    #if result/len(residuals) > 4.7:
-    #    Lplanet = get_planet_flux(eclipse_model, batman_params, batman_params.t0, batman_params.per, bjds, Fp, C1, D1, t_secondary=batman_params.t_secondary, pdb=True)
-        
-    #print(result/len(residuals), Fp, np.median(np.abs(residuals)), rp, a_star, inc, b)
+
     if return_residuals:
         return result, residuals    
 
@@ -285,397 +309,642 @@ def lnprob_transit_limited(params, batman_params, transit_model, bjds,
         print("result")
     return result
 
-def lnprob_eclipse(params, initial_batman_params, eclipse_model, bjds,
-                   fluxes, errors, y, x, initial_t_secondary, plot_result=False,
-                   return_residuals=False, max_Fp=0.02,
-                   output_filename="white_lightcurve.txt"):
-    eclipse_offset, Fp, error_factor, Fstar, A, tau, y_coeff, x_coeff, m = params
-    #x_coeff = -0.0152
-    batman_params = initial_batman_params
-    batman_params.t_secondary = initial_t_secondary + eclipse_offset
-    
-    #now account for prior
-    if (np.abs(params[0])) >= batman_params.per/4.0:
-        return -np.inf
-    if tau <= 0 or tau > 0.9: return -np.inf
-    if Fp < 0 or Fp > max_Fp: return -np.inf
-        
-    if error_factor <= 0 or error_factor >= 5: return -np.inf
-    scaled_errors = error_factor * errors
 
-    delta_t = bjds - bjds[0]
-    systematics = Fstar * (1 + A*np.exp(-delta_t/tau) + 0*y_coeff * y + x_coeff * x + m * (bjds - np.mean(bjds)))
-    astro = 1 + get_planet_flux(eclipse_model, batman_params, batman_params.t0, batman_params.per, bjds, Fp, 0, 0, 0, 0, t_secondary=batman_params.t_secondary)
-    model = systematics * astro
-    
-    residuals = fluxes - model
-    result = -0.5*(np.sum(residuals**2/scaled_errors**2 - np.log(1.0/scaled_errors**2)))
-    
-    if plot_result:
-        print("lnprob of plotted", result)
-        with open(output_filename, "w") as f:
-            f.write("#time flux uncertainty systematics_model astro_model total_model residuals\n")        
-            for i in range(len(residuals)):
-                f.write("{} {} {} {} {} {} {}\n".format(
-                    bjds[i], fluxes[i] / Fstar, scaled_errors[i] / Fstar,
-                    systematics[i] / Fstar, astro[i], model[i] / Fstar,
-                    residuals[i] / Fstar))
-        
-        binsize = len(fluxes) // 100
-        phases = (bjds-batman_params.t0)/batman_params.per
-        phases -= np.round(np.median(phases))
-
-        plot_fit_and_residuals(phases, binsize, fluxes / systematics, astro)
-        plt.figure()
-        plt.scatter(bjds, systematics)
-        print("Residuals STD", np.std(residuals))
-        
-    if np.random.randint(0, 1000) == 0:
-        print(result/len(residuals), Fp, error_factor, np.median(np.abs(residuals)))
-
-    if return_residuals:
-        return result, residuals
-
-    if np.isnan(result):
-        pdb.set_trace()
-    return result
-
-def lnprob_eclipse_limited(params, initial_batman_params, eclipse_model, bjds,
-                           fluxes, errors, y, x, wavelength=None,
-                           plot_result=False,
-                           return_residuals=False, max_Fp=0.02,
-                           output_filename="lightcurves.txt"):
-    
-    Fp, error_factor, Fstar, A, tau, y_coeff, x_coeff, m = params
-    batman_params = initial_batman_params
-    
-    #now account for prior
-    if (np.abs(params[0])) >= batman_params.per/4.0:
-        return -np.inf
-    if tau <= 0.01 or tau > 0.9: return -np.inf
-    if Fp < -max_Fp or Fp > max_Fp: return -np.inf
-        
-    if error_factor <= 0 or error_factor >= 5: return -np.inf
-    scaled_errors = error_factor * errors
-
-    delta_t = bjds - bjds[0]
-    
-    #Hack in x_coeff
-    center_waves = np.array([5.3645, 5.9735, 6.5825, 7.1915, 7.8005, 8.4095, 9.0185, 9.6275, 10.2365, 10.8455, 11.4545, 12.0635])
-
-    #Slopes
-    #No correction for saturated pixels
-    #theoretical_x_coeffs = np.array([-0.0062, -0.018, -0.019, -0.020, -0.018, -0.011, -0.015, -0.012, -0.020, -0.021, -0.017, -0.021])
-
-    #Opt
-    theoretical_x_coeffs = np.array([-0.00142, -0.00328, -0.00831, -0.0151, -0.0186, -0.0109, -0.0153, -0.0121, -0.0197, -0.0207, -0.0162, -0.0209])
-
-    #GJ 367b
-    #theoretical_x_coeffs = np.array([-0.033, -0.023, -0.024, -0.017, -0.021, -0.011, -0.013, -0.012, -0.020, -0.020, -0.017, -0.020])
-
-    #Simple, window 3
-    #theoretical_x_coeffs = np.array([-0.0014, -0.0033, -0.0083, -0.015, -0.019, -0.011, -0.015, -0.012, -0.020, -0.021, -0.016, -0.021])
-
-    #0th group
-    #theoretical_x_coeffs = np.array([-0.031, -0.024, -0.016, -0.017, -0.019, -0.010, -0.015, -0.012, -0.021, -0.022, -0.014, -0.027])
-    
-    curr_theoretical_x_coeff = theoretical_x_coeffs[np.argmin(np.abs(wavelength - center_waves))]
-    #x_coeff = curr_theoretical_x_coeff
-
-    
-    systematics = Fstar * (1 + A*np.exp(-delta_t/tau) + 0*y_coeff * y + x_coeff * x + m * (bjds - np.mean(bjds)))
-    astro = 1 + get_planet_flux(eclipse_model, batman_params, batman_params.t0, batman_params.per, bjds, Fp, 0, 0, 0, 0, t_secondary=batman_params.t_secondary)
-    model = systematics * astro
-    
-    residuals = fluxes - model
-    phases = (bjds - batman_params.t0) / batman_params.per
-    phases -= np.round(np.median(phases))
-    #scaled_errors[phases > 0.544] = 10 #GJ 486b visit 1 only
-    
-    result = -0.5*(np.sum(residuals**2/scaled_errors**2 - np.log(1.0/scaled_errors**2)))
-
-    if plot_result:
-        print("lnprob of plotted", result)
-        if not os.path.exists(output_filename):
-             with open(output_filename, "w") as f:
-                 f.write("#wavelength time flux uncertainty systematics_model astro_model total_model residuals\n")
-        
-        with open(output_filename, "a") as f:
-            for i in range(len(residuals)):
-                f.write("{} {} {} {} {} {} {} {}\n".format(
-                    wavelength, bjds[i], fluxes[i] / Fstar, scaled_errors[i] / Fstar,
-                    systematics[i] / Fstar, astro[i], model[i] / Fstar,
-                    residuals[i] / Fstar))
-        
-        binsize = len(fluxes) // 100
-
-        plot_fit_and_residuals(phases, binsize, fluxes / systematics, astro)
-        plt.figure()
-        plt.scatter(bjds, systematics)
-        print("Residuals STD", np.std(residuals))
-        
-    if np.random.randint(0, 1000) == 0:
-        print(result/len(residuals), Fp, error_factor, np.median(np.abs(residuals)))
-
-    if return_residuals:
-        return result, residuals
-
-    if np.isnan(result):
-        pdb.set_trace()
-    return result
-
-def lnprob(params, initial_batman_params, transit_model, eclipse_model, bjds,
-           fluxes, errors, y, x, initial_t0, 
-           extra_phase_terms=False, plot_result=False, max_Fp=1,
-           return_residuals=False, output_filename="white_lightcurve.txt"):
-    transit_offset = params[0]
-    eclipse_offset = params[1]
-    Fp = params[2]
-    C1 = params[3]
-    D1 = params[4]
-    if extra_phase_terms:
-        C2 = params[5]
-        D2 = params[6]
-        end_phase_terms = 7
-    else:
-        end_phase_terms = 5
-
-    rp, a_star, b, error_factor, Fstar, A, tau, y_coeff, x_coeff, m = params[end_phase_terms:]    
-    inc = np.arccos(b/a_star) * 180/np.pi
-    
-    batman_params = initial_batman_params
-    batman_params.t0 = initial_t0 + transit_offset
-    batman_params.rp = rp
-    batman_params.a = a_star
-    batman_params.inc = inc
-    #batman_params.ecc = np.sqrt(ecosw**2 + esinw**2)    
-    #batman_params.w = 180/np.pi * np.arctan2(esinw, ecosw)
-    batman_params.t_secondary = initial_t0 + batman_params.per/2 + eclipse_offset
-    if b <= 0 or b >= 1: return -np.inf
-
-    #now account for prior
-    if (np.abs(params[0])) >= batman_params.per/20.0:
-        return -np.inf
-        
-    if (np.abs(params[1])) >= batman_params.per/20.0:
-        return -np.inf
-
-    if Fstar <= 0:
-        return -np.inf
-    
-    if tau < 1e-2 or tau > 0.3: return -np.inf
-    #if one_over_tau < 5 or one_over_tau > 100: return -np.inf
-    #tau = 1./one_over_tau
-
-    if Fp <= 0 or Fp >= max_Fp: return -np.inf
-    if error_factor <= 0 or error_factor >= 5: return -np.inf
-    #if rp <= 0 or rp >= 1 or a_star <= 0 or b <= 0 or b >= 1: return -np.inf
-    
-    lnprior = -0.5 * A**2 / 0.1**2
-    scaled_errors = error_factor * errors
-
-    delta_t = bjds - bjds[0]
-    systematics = Fstar * (1 + A*np.exp(-delta_t/tau) + y_coeff * y + x_coeff * x + m * (bjds - np.mean(bjds)))
-    
-    if extra_phase_terms:
-        Lplanet = get_planet_flux(eclipse_model, batman_params, batman_params.t0, batman_params.per, bjds, Fp, C1, D1, C2, D2, t_secondary=batman_params.t_secondary)
-    else:
-        Lplanet = get_planet_flux(eclipse_model, batman_params, batman_params.t0, batman_params.per, bjds, Fp, C1, D1, t_secondary=batman_params.t_secondary)
-
-    #if np.min(Lplanet) < 0: return -np.inf
-    astro = transit_model.light_curve(batman_params) + Lplanet    
-    model = systematics * astro
-
-    phases = (bjds - initial_t0) / batman_params.per
-    phases -= np.round(np.median(phases))
-    #scaled_errors[np.logical_and(phases > -0.06, phases < -0.011)] = 10
-    
-    residuals = fluxes - model
-    #residuals[np.logical_and(phases > -0.3506, phases < -0.3451)] = 0
-    #residuals[np.logical_and(phases > 0.19879, phases < 0.206)] = 0
-    result = lnprior -0.5*(np.sum(residuals**2/scaled_errors**2 - np.log(1.0/scaled_errors**2)))
-
-    if plot_result:
-        print("lnprob of plotted", result)
-        with open(output_filename, "w") as f:
-            f.write("#time flux uncertainty systematics_model astro_model total_model residuals\n")        
-            for i in range(len(residuals)):
-                f.write("{} {} {} {} {} {} {}\n".format(bjds[i], fluxes[i] / Fstar, scaled_errors[i] / Fstar,
-                                                        systematics[i] / Fstar, astro[i], model[i] / Fstar,
-                                                        residuals[i] / Fstar))
-        
-        binsize = len(bjds) // 200
-        phases = (bjds-batman_params.t0)/batman_params.per
-        phases -= np.round(np.median(phases))
-
-        plot_fit_and_residuals(phases, binsize, fluxes / systematics, astro)
-        plt.figure()
-        plt.scatter(bjds, Lplanet)
-
-        plt.figure()
-        plt.scatter(bjds[::binsize], uniform_filter(systematics, binsize)[::binsize])
-
-
-        print("STD including & excluding near-transit:", np.std(residuals), np.std(residuals[np.abs(phases) > 0.1]))
-              
-    if np.random.randint(0, 1000) == 0:
-        print(result/len(residuals), error_factor, Fp, np.median(np.abs(residuals)), rp)
-   
-    if return_residuals:
-        return result, residuals    
-
-    if np.isnan(result):
-        print("result")
-    return result
-
-def norm_lnlike(residuals, sigma_sqr):
-    return -0.5 * np.sum(residuals**2 / sigma_sqr + np.log(2 * np.pi * sigma_sqr))
-
-def wavelet_lnlike(residuals, sigma_w, sigma_r, gamma=1):
-    if np.log2(len(residuals)).is_integer():                                                                                                                                                            
-        N = len(residuals)                                                                                                                                                                                 
-        padded_residuals = np.copy(residuals)                                                                                                                                                              
-    else:                                                                                                                                                                                                  
-        power = np.ceil(np.log2(len(residuals)))                                                                                                                                                           
-        N = int(2**power)                                                                                                                                                                                  
-        padded_residuals = np.zeros(N)                                                                                                                                                                     
-        padded_residuals[0:len(residuals)] = residuals                                                                                                                                                     
-
-    assert(np.log2(N).is_integer())
-    level = int(np.log2(N / 2))
-    result = pywt.wavedec(padded_residuals, 'db2', mode='periodization', level=level)
-    cA = result[0]
-    cDs = result[1:]
-
-    if gamma == 1:
-        g_gamma = 1.0 / (2 * np.log(2))
-    else:
-        g_gamma = 1.0 / (2**(1-gamma) - 1)
-
-    sigma_cA_sqr = sigma_r**2 * 2**(-gamma) * g_gamma + sigma_w**2
-    lnlike = norm_lnlike(cA, sigma_cA_sqr)
-    for m in range(1, level + 1):
-        sigma_cD_sqr = sigma_r**2 * 2**(-gamma*m) + sigma_w**2
-        lnlike += norm_lnlike(cDs[m-1], sigma_cD_sqr)
-        
-    return lnlike
+def compute_lnprob_pc(
+    all_params,
+    free_names,
+    initial_batman_params,
+    transit_model,
+    eclipse_model,
+    bjds,
+    fluxes,
+    errors,
+    y,
+    x,
+    initial_t0,
+    extra_phase_terms=False,
+    fit_gp=False, 
+    fit_period_gp=True,
+    plot_result=False, 
+    wavelengths = None,
+    lc_savepath = None,
+    residuals_blue = None,
+):
 
 
 
-def lnprob_limited(params, batman_params, transit_model, eclipse_model, bjds,
-                           fluxes, errors, y, x, initial_t0, fix_tau, extra_phase_terms=False, wavelength=None, plot_result=False, max_Fp=1,
-                           return_residuals=False, output_filename="lightcurves.txt"):
-    batman_params = copy.deepcopy(batman_params)
-    Fp = params[0]
-    C1 = params[1]
-    D1 = params[2]
-    if extra_phase_terms:
-        C2 = params[3]
-        D2 = params[4]
-        end_phase_terms = 5
-    else:
-        end_phase_terms = 3
-    rp, error_factor, Fstar, A, tau, y_coeff, x_coeff, m = params[end_phase_terms:]
-
-    '''#Hack in x_coeff
-    center_waves = np.array([5.3645, 5.9735, 6.5825, 7.1915, 7.8005, 8.4095, 9.0185, 9.6275, 10.2365, 10.8455, 11.4545, 12.0635])
-    theoretical_x_coeffs = np.array([-0.033, -0.023, -0.024, -0.017, -0.021, -0.011, -0.013, -0.013, -0.012, -0.019, -0.020, -0.017, -0.020])
-    curr_theoretical_x_coeff = theoretical_x_coeffs[np.argmin(np.abs(wavelength - center_waves))]
-    x_coeff = curr_theoretical_x_coeff'''
-    
-    if Fstar <= 0:
-        return -np.inf
-
-    if Fp >= max_Fp: return -np.inf
-    if error_factor <= 0: return -np.inf
-    if rp <= 0 or rp >= 1: return -np.inf
-    #if A <= 0: return -np.inf
-
-    #if one_over_tau < 5 or one_over_tau > 100: return -np.inf
-    batman_params.rp = rp
-    
-    #if tau < 0.01 or tau > 1: return -np.inf    
-    if tau < 0.01 or tau > 0.2: return -np.inf
-    #if tau_power <= 0 or tau_power > 3: return -np.inf
-    #tau = 1./one_over_tau
-    #tau2 = 1./one_over_tau2
-    #if tau2 > tau/2: return -np.inf
-
-    lnprior = 0
-    #lnprior = -0.5 * A**2 / 0.1**2 #-0.5 * A2**2 / 0.1**2
-    
-    delta_t = bjds - bjds[0]
-
-    #Fix ramp values
-    #A = 3e-4
-    #tau = 0.12
-    
-    systematics = Fstar * (1 + A*np.exp(-delta_t/tau) + y_coeff * y + x_coeff * x + m * (bjds - np.mean(bjds)))
+    C1 = all_params["C1"]
+    D1 = all_params["D1"]
 
     if extra_phase_terms:
-        Lplanet = get_planet_flux(eclipse_model, batman_params, batman_params.t0, batman_params.per, bjds, Fp, C1, D1, C2, D2, t_secondary=batman_params.t_secondary)
+        C2 = all_params["C2"]
+        D2 = all_params["D2"]
     else:
-        Lplanet = get_planet_flux(eclipse_model, batman_params, batman_params.t0, batman_params.per, bjds, Fp, C1, D1, t_secondary=batman_params.t_secondary)
+        C2 = None
+        D2 = None
+    t0 = all_params["t0"]
+    t_secondary = all_params["t_secondary"]
+    rp           = all_params["rp"]
+    fp           = all_params["fp"]
+    a_star       = all_params["a_star"]
+    error_factor = all_params["error_factor"]
+    q1      = all_params["q1"]
+    q2      = all_params["q2"]
+    per     = all_params["per"]
 
-    #if np.min(Lplanet) < 0: return -np.inf
+    if fit_gp and fit_period_gp:
+        ln_sigma_gp = all_params["ln_sigma_gp"]
+        ln_Q_gp     = all_params["ln_Q_gp"]
+        ln_w0_gp    = all_params["ln_w0_gp"]
+        #ln_jit_gp   = all_params["ln_jit_gp"]
+
+        sigma_gp = np.exp(ln_sigma_gp)
+        Q_gp     = np.exp(ln_Q_gp)
+        w0_gp    = np.exp(ln_w0_gp)
+        #jitter_gp= np.exp(ln_jit_gp)
+        jitter_gp = 0
+    elif fit_gp and not fit_period_gp:
+        ln_sigma_gp = all_params["ln_sigma_gp"]
+        ln_Q_gp     = all_params["ln_Q_gp"]
+        ln_w0_gp    = all_params["ln_w0_gp"]
+        #ln_jit_gp   = all_params["ln_jit_gp"]
+
+        sigma_gp = np.exp(ln_sigma_gp)
+        Q_gp     = np.exp(ln_Q_gp)
+        fixed_w0_gp    = np.exp(ln_w0_gp)
+        #jitter_gp= np.exp(ln_jit_gp)
+        jitter_gp = 0
+    else:
+        sigma_gp = Q_gp = w0_gp = jitter_gp = None
+
+
+    batman_params = copy.deepcopy(initial_batman_params)
+    if all_params['limb_dark'] == 'kipping2013':
+        batman_params.limb_dark = 'quadratic'
+        batman_params.u   = [2*np.sqrt(q1)*q2, np.sqrt(q1)*(1 - 2*q2)]
+    elif all_params['limb_dark'] == 'quadratic':
+        batman_params.limb_dark = 'quadratic'
+        batman_params.u = [q1, q2]
     
+    if "t0" in free_names:
+        batman_params.t0 = t0
+    if "rp" in free_names:
+        batman_params.rp = rp
+    if "per" in free_names:
+        batman_params.per = per
+    if "a_star" in free_names:
+        batman_params.a = a_star
+    if "b" in free_names:
+        batman_params.inc = np.arccos(all_params["b"]/a_star) * 180/np.pi
+    elif "inc" in free_names:
+        batman_params.inc = all_params["inc"]
+    if "t_secondary" in free_names:
+        batman_params.t_secondary = t_secondary
+    else: 
+        batman_params.t_secondary = t0 + batman_params.per / 2.0
+
+    delta_t = bjds - bjds[0]
+    systematics = 1.0
+    if "m" in all_params:
+        systematics += all_params["m"] * (bjds - np.mean(bjds))
+    if "A" in all_params and "tau" in all_params:
+        systematics += all_params["A"] * np.exp(-delta_t / all_params["tau"])
+    if "y_coeff" in all_params:
+        systematics += all_params["y_coeff"] * y
+    if "x_coeff" in all_params:
+        systematics += all_params["x_coeff"] * x
+    if residuals_blue is not None and 'res_coeff' in all_params:
+        systematics += residuals_blue * all_params['res_coeff']
+    if "amp1" in all_params and "amp2" in all_params and "log_om" in all_params:
+        log_om = all_params["log_om"]
+        om = np.exp(log_om)
+        systematics += all_params["amp1"] * np.cos(om * delta_t) + all_params["amp2"] * np.sin(om * delta_t)
+    if "Fstar" in all_params:
+        Fstar = all_params["Fstar"]
+        systematics *= Fstar
+    else: 
+        Fstar = 1.0  ### Needed for plotting later
+
+    # Phase‐curve (planet) flux:
+    if extra_phase_terms:
+        Lplanet = get_planet_flux(
+            eclipse_model,
+            batman_params,
+            batman_params.t0,
+            batman_params.per,
+            bjds,
+            fp,
+            C1, D1,
+            C2, D2,
+            t_secondary=batman_params.t_secondary,
+        )
+    else:
+        Lplanet = get_planet_flux(
+            eclipse_model,
+            batman_params,
+            batman_params.t0,
+            batman_params.per,
+            bjds,
+            fp,
+            C1, D1,
+            t_secondary=batman_params.t_secondary,
+        )
+
     astro = transit_model.light_curve(batman_params) + Lplanet
+
     model = systematics * astro
+
     residuals = fluxes - model
-    scaled_errors = errors * error_factor
-
-    phases = (bjds-batman_params.t0)/batman_params.per
-    phases -= np.round(np.median(phases))
-
-    residuals[np.logical_and(phases > -0.3506, phases < -0.3451)] = 0
-    #residuals[np.logical_and(phases > -0.28154, phases < -0.246)] = 0
-    residuals[np.logical_and(phases > 0.19879, phases < 0.206)] = 0
-    
-    result = lnprior - 0.5*(np.sum(residuals**2/scaled_errors**2 - np.log(1.0/scaled_errors**2)))
-
-    if plot_result:
-        print("lnprob", result)
-        if not os.path.exists(output_filename):
-             with open(output_filename, "w") as f:
-                 f.write("#wavelength time flux uncertainty systematics_model astro_model total_model residuals\n")
+    scaled_errors = error_factor * errors
+    # 2d) Compute log‐likelihood
+    if fit_gp:
+        if fit_period_gp:
+            kernel_gp = terms.SHOTerm(sigma=sigma_gp, Q=Q_gp, w0=w0_gp)
+        if not fit_period_gp:
+            kernel_gp = terms.SHOTerm(sigma=sigma_gp, Q=Q_gp, w0=fixed_w0_gp)
+        gp = celerite2.GaussianProcess(kernel_gp, mean=0.0)
+        #diag = scaled_errors**2 + jitter_gp**2
+        diag = scaled_errors**2
+        gp.compute(bjds, diag=diag)
+        bf_model = model + gp.predict(residuals, return_cov=False)
+        if plot_result:
+            print("-----------Plotting...----------")
+            import pdb
+            pdb.set_trace()
+            plot_fit_and_residuals(bjds, fluxes, scaled_errors, bf_model, binsize=100, plot_phase=False, astro_model=astro, systematics=systematics)
+            if not os.path.exists(lc_savepath):
+                with open(lc_savepath, "w") as f:
+                    f.write("startwave endwave time flux uncertainty systematics_model astro_model total_model residuals\n")
         
-        with open(output_filename, "a") as f:
-            for i in range(len(residuals)):
-                f.write("{} {} {} {} {} {} {} {}\n".format(wavelength, bjds[i], fluxes[i] / Fstar, scaled_errors[i] / Fstar,
-                                                     systematics[i] / Fstar, astro[i], model[i] / Fstar,
-                                                     residuals[i] / Fstar))
-                
-        binsize = len(bjds) // 200
-        #residuals -= np.mean(residuals)
-        phases = (bjds-batman_params.t0)/batman_params.per
-        phases -= np.round(np.median(phases))
-
-        plot_fit_and_residuals(phases, binsize, fluxes / systematics, astro)
-    
-        plt.figure()
-        plt.scatter(bjds, Lplanet)
-        plt.title("Lplanet")
-
-        plt.figure()
-        plt.scatter(bjds, systematics)
-        plt.title("systematics")
-
-
-        print(np.std(residuals[phases < -0.09]), np.std(residuals[phases > -0.09]))
-    if np.random.randint(0, 1000) == 0:
-        print(result/len(residuals), np.median(scaled_errors), error_factor, Fstar, Fp, np.median(np.abs(residuals)), rp)
-    #if result/len(residuals) > 4.7:
-    #    Lplanet = get_planet_flux(eclipse_model, batman_params, batman_params.t0, batman_params.per, bjds, Fp, C1, D1, t_secondary=batman_params.t_secondary, pdb=True)
+                with open(lc_savepath, "a") as f:
+                    for i in range(len(residuals)):
+                        f.write("{} {} {} {} {} {} {} {} {}\n".format(
+                            wavelengths[0], wavelengths[-1], bjds[i], fluxes[i] / Fstar, scaled_errors[i] / Fstar,
+                            systematics[i] / Fstar, astro[i], model[i] / Fstar,
+                            residuals[i] / Fstar))
         
-    #print(result/len(residuals), Fp, np.median(np.abs(residuals)), rp, a_star, inc, b)
-    if return_residuals:
-        return result, residuals    
+        return gp.log_likelihood(residuals)
 
-    if np.isnan(result):
-        pdb.set_trace()
-        print("result")
+    else:
+        var = scaled_errors**2
+        bf_model = model
+        if plot_result:
+            print("-----------Plotting...----------")
+            plot_fit_and_residuals(bjds, fluxes, scaled_errors, bf_model, binsize=100, plot_phase=False, astro_model=astro, systematics=systematics)
+            if not os.path.exists(lc_savepath):
+                with open(lc_savepath, "w") as f:
+                    f.write("startwave endwave time flux uncertainty systematics_model astro_model total_model residuals\n")
+        
+                with open(lc_savepath, "a") as f:
+                    for i in range(len(residuals)):
+                        f.write("{} {} {} {} {} {} {} {} {}\n".format(
+                            wavelengths[0], wavelengths[-1], bjds[i], fluxes[i] / Fstar, scaled_errors[i] / Fstar,
+                            systematics[i] / Fstar, astro[i], model[i] / Fstar,
+                            residuals[i] / Fstar))
+        return -0.5 * np.sum((residuals**2) / var + np.log(2 * np.pi * var))
 
-    return result
+
+def lnprob_wrapper_pc(
+    theta,
+    free_names,
+    fixed_dict,
+    priors,
+    initial_batman_params,
+    transit_model,
+    eclipse_model,
+    bjds,
+    fluxes,
+    errors,
+    y,
+    x,
+    initial_t0,
+    extra_phase_terms=False,
+    fit_gp=False,
+    fit_period_gp=True,
+    plot_result=False,
+    wavelengths = None,
+    lc_savepath = None,
+    residuals_blue = None,
+):
+
+
+    all_params = {}
+
+    lp = 0.0
+    for i, name in enumerate(free_names):
+        prior_spec = priors[name]
+        val_theta  = theta[i]
+
+        if prior_spec is None:
+            # This shouldn’t happen: free parameters always have a prior.
+            raise ValueError(f"Parameter '{name}' is free but has no prior in config.")
+
+        ptype = prior_spec["type"]
+        p1    = prior_spec["p1"]
+        p2    = prior_spec["p2"]
+
+        if ptype == "U":
+            if not (p1 <= val_theta <= p2):
+                return -np.inf
+            real_val = val_theta
+        elif ptype == "LU":
+            if not (p1 <= val_theta <= p2):
+                return -np.inf
+            real_val = 10.0 ** val_theta
+        elif ptype == "N":
+            real_val = val_theta
+            lp += -0.5 * ((val_theta - p1) / p2) ** 2
+        else:
+            raise ValueError(f"Unknown prior type '{ptype}' for parameter '{name}'")
+
+        all_params[name] = real_val
+
+    for name, val in fixed_dict.items():
+        all_params[name] = val
+
+
+    lnlike = compute_lnprob_pc(
+        all_params,
+        free_names,
+        initial_batman_params,
+        transit_model,
+        eclipse_model,
+        bjds,
+        fluxes,
+        errors,
+        y,
+        x,
+        initial_t0,
+        extra_phase_terms=extra_phase_terms,
+        fit_gp=fit_gp,
+        fit_period_gp=fit_period_gp,
+        plot_result=plot_result,
+        wavelengths=wavelengths,
+        lc_savepath=lc_savepath,
+        residuals_blue=residuals_blue,
+    )
+    if not np.isfinite(lnlike):
+        return -np.inf
+
+    return lp + lnlike
+    
+def compute_lnprob_eclipse(
+    all_params,
+    free_names,
+    initial_batman_params,
+    eclipse_model,
+    bjds,
+    fluxes,
+    errors,
+    initial_t0,
+    x,
+    y,
+    xw,
+    yw,
+    fit_gp=False, 
+    fit_period_gp=True,
+    plot_result=False, 
+    wavelengths = None,
+    lc_savepath = None,
+    visit_indices=None,
+    joint_fit=False,
+    N_visits=1,
+
+):
+
+
+
+    batman_params = copy.deepcopy(initial_batman_params)
+    
+
+    if fit_gp and fit_period_gp:
+        ln_sigma_gp = all_params["ln_sigma_gp"]
+        ln_Q_gp     = all_params["ln_Q_gp"]
+        ln_w0_gp    = all_params["ln_w0_gp"]
+        #ln_jit_gp   = all_params["ln_jit_gp"]
+
+        sigma_gp = np.exp(ln_sigma_gp)
+        Q_gp     = np.exp(ln_Q_gp)
+        w0_gp    = np.exp(ln_w0_gp)
+        #jitter_gp= np.exp(ln_jit_gp)
+        jitter_gp = 0
+    elif fit_gp and not fit_period_gp:
+        ln_sigma_gp = all_params["ln_sigma_gp"]
+        ln_Q_gp     = all_params["ln_Q_gp"]
+        ln_w0_gp    = all_params["ln_w0_gp"]
+        #ln_jit_gp   = all_params["ln_jit_gp"]
+
+        sigma_gp = np.exp(ln_sigma_gp)
+        Q_gp     = np.exp(ln_Q_gp)
+        fixed_w0_gp    = np.exp(ln_w0_gp)
+        #jitter_gp= np.exp(ln_jit_gp)
+        jitter_gp = 0
+    else:
+        sigma_gp = Q_gp = w0_gp = jitter_gp = None
+
+    # Shared parameters
+    
+    t0 = all_params["t0"]
+    t_secondary = all_params["t_secondary"]
+    rp = all_params["rp"]
+    fp = all_params["fp"]
+    a_star = all_params["a_star"]
+    error_factor = all_params["error_factor"]
+    if "Fstar" in all_params:
+        Fstar = all_params["Fstar"]
+    per = all_params["per"]
+    
+    # Initialize per-visit systematics containers
+    # Default to single-visit behavior:
+    if joint_fit:
+        # Expect visit-specific names, e.g., A1...AN, tau1...tauN, m1...mN, x_coeff1...x_coeffN, y_coeff1...y_coeffN, Fstar1... etc.
+        systematics = np.zeros_like(bjds, dtype=float)
+        Fstar_per_point = np.zeros_like(bjds, dtype=float) 
+        for v in range(1, N_visits + 1):
+            # Mask of points belonging to visit v
+            mask_v = (visit_indices == v)
+            delta_t_v = bjds[mask_v] - bjds[mask_v][0]
+            # Pull visit-specific parameters, fall back or error if missing
+            try:
+                A_v = all_params[f"A{v}"]
+                tau_v = all_params[f"tau{v}"]
+                m_v = all_params[f"m{v}"]
+                x_coeff_v = all_params.get(f"x_coeff{v}", 0.0)
+                y_coeff_v = all_params.get(f"y_coeff{v}", 0.0)
+                xw_coeff_v = all_params.get(f"xw_coeff{v}", 0.0)
+                yw_coeff_v = all_params.get(f"yw_coeff{v}", 0.0)
+                Fstar_v = all_params.get(f"Fstar{v}", 1.0)
+                #error_factor_v = all_params.get(f"error_factor{v}", 1.0)
+            except KeyError as e:
+                raise KeyError(f"Missing expected visit-specific parameter for joint fit: {e}")
+            sys_v = 1.0 + m_v * (bjds[mask_v] - np.mean(bjds[mask_v]))
+            sys_v += A_v * np.exp(-delta_t_v / tau_v)
+            sys_v += y_coeff_v * y[mask_v]
+            sys_v += x_coeff_v * x[mask_v]
+            sys_v += yw_coeff_v * yw[mask_v] 
+            sys_v += xw_coeff_v * xw[mask_v]
+
+            # Apply Fstar_v scaling per visit
+            sys_v *= Fstar_v
+
+            systematics[mask_v] = sys_v
+            Fstar_per_point[mask_v] = Fstar_v
+
+    
+    else:
+        if "A" in all_params:
+            A = all_params["A"]
+        if "tau" in all_params:
+            tau = all_params["tau"]
+        if "y_coeff" in all_params:
+            y_coeff = all_params["y_coeff"]
+        if "x_coeff" in all_params:
+            x_coeff = all_params["x_coeff"]
+        if "xw_coeff" in all_params:
+            xw_coeff = all_params["xw_coeff"]
+        if "yw_coeff" in all_params:
+            yw_coeff = all_params["yw_coeff"]
+        if "m" in all_params:
+            m = all_params["m"]
+        systematics = 1.0 + m * (bjds - np.mean(bjds))
+        if 'A' in free_names and 'tau' in free_names:
+            systematics += A * np.exp(- (bjds - bjds[0]) / tau)
+        if 'y_coeff' in free_names:
+            systematics += y_coeff * y
+        if 'x_coeff' in free_names:
+            systematics += x_coeff * x
+        if 'xw_coeff' in free_names:
+            systematics += xw_coeff * xw
+        if 'yw_coeff' in free_names:
+            systematics += yw_coeff * yw
+        systematics *= Fstar
+
+    if all_params['limb_dark'] == 'kipping2013':
+        q1 = all_params["q1"]
+        q2 = all_params["q2"]
+        batman_params.limb_dark = 'quadratic'
+        batman_params.u   = [2*np.sqrt(q1)*q2, np.sqrt(q1)*(1 - 2*q2)]
+    elif all_params['limb_dark'] == 'quadratic':
+        q1 = all_params["q1"]
+        q2 = all_params["q2"]
+        batman_params.limb_dark = 'quadratic'
+        batman_params.u = [q1, q2]
+    elif all_params['limb_dark'] == 'linear':
+        q1 = all_params["q1"]
+        batman_params.limb_dark = 'linear'
+        batman_params.u = [q1]
+    elif all_params['limb_dark'] == 'uniform':
+        batman_params.limb_dark = 'uniform'
+        batman_params.u = []
+    
+
+    batman_params.t0 = t0
+    if "rp" in free_names:
+        batman_params.rp = rp
+    if "per" in free_names:
+        batman_params.per = per
+    if "a_star" in free_names:
+        batman_params.a = a_star
+    if "b" in free_names and "inc" in free_names:
+        raise ValueError("Cannot have both 'b' and 'inc' as free parameters. Please fix one.")
+    if "b" in free_names:
+        batman_params.inc = np.arccos(all_params["b"]/a_star) * 180/np.pi
+    elif "inc" in free_names:
+        batman_params.inc = all_params["inc"]
+    if "t_secondary" in free_names:
+        batman_params.t_secondary = t_secondary
+    batman_params.fp = fp
+    
+    if "sqrt_ecosw" in free_names and "sqrt_esinw" in free_names:
+        ecosw = all_params["sqrt_ecosw"]
+        esinw = all_params["sqrt_esinw"]
+        #print(ecosw, esinw, ecosw**2 + esinw**2, np.arctan2(esinw, ecosw) * 180.0/np.pi)
+        batman_params.ecc = ecosw**2 + esinw**2
+        batman_params.w = np.arctan2(esinw, ecosw) * 180.0/np.pi
+    
+    
+
+    astro = eclipse_model.light_curve(batman_params)
+    model = systematics * astro
+
+ 
+    residuals = fluxes - model
+    scaled_errors = error_factor * errors
+
+    # 2d) Compute log‐likelihood
+    if fit_gp:
+        raise NotImplementedError("GP fitting not yet implemented for fitting eclipses")
+    
+        if fit_period_gp:
+            kernel_gp = terms.SHOTerm(sigma=sigma_gp, Q=Q_gp, w0=w0_gp)
+        if not fit_period_gp:
+            kernel_gp = terms.SHOTerm(sigma=sigma_gp, Q=Q_gp, w0=fixed_w0_gp)
+        gp = celerite2.GaussianProcess(kernel_gp, mean=0.0)
+        #diag = scaled_errors**2 + jitter_gp**2
+        diag = scaled_errors**2
+        gp.compute(bjds, diag=diag)
+        bf_model = model + gp.predict(residuals, return_cov=False)
+        if plot_result:
+            print("-----------Plotting...----------")
+            binsize = len(residuals) // 3
+            plot_fit_and_residuals(bjds, fluxes, scaled_errors, bf_model, binsize=binsize, plot_phase=False, astro_model=astro, systematics=systematics)
+            chi2_r, chi2, dof = reduced_chisq(fluxes, bf_model, scaled_errors, n_free_params=len(free_names))
+            print(f"Reduced chi-squared: {chi2_r:.3f} (chi2={chi2:.3f}, dof={dof})")
+            if not os.path.exists(lc_savepath):
+                with open(lc_savepath, "w") as f:
+                    f.write("startwave endwave time flux uncertainty systematics_model astro_model total_model residuals visit\n")
+        
+                with open(lc_savepath, "a") as f:
+                    for i in range(len(residuals)):
+                        visit_str = f"{visit_indices[i]}" if (joint_fit and visit_indices is not None) else "1"
+                        this_Fstar = Fstar_per_point[i] if (joint_fit and visit_indices is not None) else all_params.get("Fstar", 1.0)
+                        scaled_err = scaled_errors[i]  # assume this already includes the shared error_factor
+                        f.write(
+                            "{} {} {} {} {} {} {} {} {} {}\n".format(
+                                wavelengths[0],
+                                wavelengths[-1],
+                                bjds[i],
+                                fluxes[i] / this_Fstar,
+                                scaled_err / this_Fstar,
+                                systematics[i] / this_Fstar,
+                                astro[i],
+                                model[i] / this_Fstar,
+                                residuals[i] / this_Fstar,
+                                visit_str,
+                            )
+                        )
+        
+        return gp.log_likelihood(residuals)
+
+    else:
+        var = scaled_errors**2
+        bf_model = model
+        if plot_result:
+            print("-----------Plotting...----------")
+            plot_fit_and_residuals(bjds, fluxes, scaled_errors, bf_model, binsize=100, plot_phase=False, astro_model=astro, systematics=systematics)
+            chi2_r, chi2, dof = reduced_chisq(fluxes, bf_model, scaled_errors, n_free_params=len(free_names))
+            print(f"Reduced chi-squared: {chi2_r:.3f} (chi2={chi2:.3f}, dof={dof})")
+            if not os.path.exists(lc_savepath):
+                with open(lc_savepath, "w") as f:
+                    f.write("startwave endwave time flux uncertainty systematics_model astro_model total_model residuals visit\n")
+                with open(lc_savepath, "a") as f:
+                    for i in range(len(residuals)):
+                        visit_str = f"{visit_indices[i]}" if (joint_fit and visit_indices is not None) else "1"
+                        this_Fstar = Fstar_per_point[i] if (joint_fit and visit_indices is not None) else all_params.get("Fstar", 1.0)
+                        scaled_err = scaled_errors[i]  # assume this already includes the shared error_factor
+                        f.write(
+                            "{} {} {} {} {} {} {} {} {} {}\n".format(
+                                wavelengths[0],
+                                wavelengths[-1],
+                                bjds[i],
+                                fluxes[i] / this_Fstar,
+                                scaled_err / this_Fstar,
+                                systematics[i] / this_Fstar,
+                                astro[i],
+                                model[i] / this_Fstar,
+                                residuals[i] / this_Fstar,
+                                visit_str,
+            print(eclipse_model.get_t_secondary(batman_params))
+            
+            # optionally log the shared error_factor for diagnostics
+                            )
+                        )
+        return -0.5 * np.sum((residuals**2) / var + np.log(2 * np.pi * var))
+
+
+def lnprob_wrapper_eclipse(
+    theta,
+    free_names,
+    fixed_dict,
+    priors,
+    initial_batman_params,
+    eclipse_model,
+    bjds,
+    fluxes,
+    errors,
+    initial_t0,
+    x=None,
+    y=None,
+    xw=None,
+    yw=None,
+    fit_gp=False,
+    fit_period_gp=True,
+    plot_result=False,
+    wavelengths = None,
+    lc_savepath = None,
+    visit_indices=None,
+    joint_fit=False,
+    N_visits=1,
+):
+
+
+    all_params = {}
+
+    lp = 0.0
+    for i, name in enumerate(free_names):
+        prior_spec = priors[name]
+        val_theta  = theta[i]
+
+        if prior_spec is None:
+            # This shouldn’t happen: free parameters always have a prior.
+            raise ValueError(f"Parameter '{name}' is free but has no prior in config.")
+
+        ptype = prior_spec["type"]
+        p1    = prior_spec["p1"]
+        p2    = prior_spec["p2"]
+
+        if ptype == "U":
+            if not (p1 <= val_theta <= p2):
+                return -np.inf
+            real_val = val_theta
+        elif ptype == "LU":
+            if not (p1 <= val_theta <= p2):
+                return -np.inf
+            real_val = 10.0 ** val_theta
+        elif ptype == "N":
+            real_val = val_theta
+            lp += -0.5 * ((val_theta - p1) / p2) ** 2
+        else:
+            raise ValueError(f"Unknown prior type '{ptype}' for parameter '{name}'")
+
+        all_params[name] = real_val
+
+    for name, val in fixed_dict.items():
+        all_params[name] = val
+        if joint_fit:
+            shared_keys = ["rp", "t0", "per", "ecc", "w", "inc", "a_star", "t_secondary", "fp", "limb_dark"]
+
+
+
+    lnlike = compute_lnprob_eclipse(
+        all_params,
+        free_names,
+        initial_batman_params,
+        eclipse_model,
+        bjds,
+        fluxes,
+        errors,
+        initial_t0,
+        y=y,
+        x=x,
+        yw=yw,
+        xw=xw,
+        fit_gp=fit_gp,
+        fit_period_gp=fit_period_gp,
+        plot_result=plot_result,
+        wavelengths=wavelengths,
+        lc_savepath=lc_savepath,
+        visit_indices=visit_indices,
+        joint_fit=joint_fit,
+        N_visits=N_visits,
+    )
+    if not np.isfinite(lnlike):
+        return -np.inf
+
+    return lp + lnlike
+
+
+
 
 
 def get_initial_positions(initial_params, lnprob, lnprob_args, nwalkers):

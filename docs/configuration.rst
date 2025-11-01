@@ -101,6 +101,8 @@ Each row defines a parameter with columns:
      - Mid-transit epoch (BJD).
    * - ``inc``
      - Orbital inclination (deg).
+   * - ``b``
+     - Orbital impact parameter. Please ensure commenting out ``inc`` if ``b`` is used, and vice versa.
    * - ``a_star``
      - Scaled semi-major axis (a/Rs).
    * - ``sqrt_ecosw``

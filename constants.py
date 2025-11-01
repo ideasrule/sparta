@@ -76,10 +76,6 @@ if INSTRUMENT == "MIRI_IMAGE":
         RIGHT = 1032
         TOP = 0
         BOT = 1024
-        #LEFT = 398
-        #RIGHT = 998
-        #TOP = 116
-        #BOT = 716
         SKIP_REF = True
         DARK_FILE = REF_DIR + "jwst_miri_dark_0113.fits"
         NONLINEAR_FILE = REF_DIR + "jwst_miri_linearity_0039.fits"

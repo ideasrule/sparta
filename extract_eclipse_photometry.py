@@ -5,7 +5,7 @@ import batman
 import pickle
 from astropy.stats import sigma_clip
 from read_config import *
-from GP_emcee import *
+from emcee_methods import *
 import argparse
 import matplotlib.pyplot as plt
 import corner

@@ -41,8 +41,8 @@ Step one is to run the calibration pipeline:
 
     python ../../../calibrate.py ../uncal/jw*fits
 
-This will create ``rateint.fits`` in the output directory. 
-The ``SCI`` layer contains either DN per slope or electron number per slope depending on whether the gain scale step is applied. 
+This will create ``rateints*.fits`` in the output directory. 
+The ``SCI`` extension contains either DN per slope or electron number per slope depending on whether the gain scale step is applied. 
 When the script is running, steps performed are printed to your terminal, and diagnostic plots are also generated for the ``emicorr`` step.
 
 Now let's make a new directory to save plots:
@@ -55,15 +55,7 @@ Now let's make a new directory to save plots:
 
     python ../../../ap_extract.py -f ./rateints*
 
-to do classic aperture photometry
-
-or
-
-.. code-block:: bash
-
-    python ../../../opt_ap_extract.py -r ./rateints*
-
-to do optimal aperture photometry to extract the light curve.
+to do classic aperture photometry to extract the light curve.
 
 
 Before running ``ap_extract.py``, make sure to update the following parameters:

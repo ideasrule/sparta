@@ -95,7 +95,6 @@ def emicorr(data, frequency, ref_pa, bin_numbers = 500, dataname = None):
         for k in range(ngroups):   # frames
             residualsall[n, k]  = stacked[n, k] - (slopes * k + intercepts)
             for j in range(ny):    # rows
-                ### nsamples= 1 for fast, 9 for slow (from metadata)
                 times_this_int[k, j, :] = np.arange(nx4, dtype='ulonglong') * nsamples + start_time
     
                 if colstop == 258:
@@ -112,7 +111,6 @@ def emicorr(data, frequency, ref_pa, bin_numbers = 500, dataname = None):
     
     
         period_in_pixels = (1./frequency) / 10.0e-6
-        #print("Period in pixels is {}".format(period_in_pixels))
     
         phase_this_int = times_this_int / period_in_pixels
         phaseall[n,:,:,:] = phase_this_int - phase_this_int.astype('ulonglong')
@@ -130,7 +128,6 @@ def emicorr(data, frequency, ref_pa, bin_numbers = 500, dataname = None):
 
     binned_vals -= np.mean(binned_vals)
 
-    #print(ref_pa)
     correlation = correlate(binned_vals - np.mean(binned_vals), ref_pa - np.mean(ref_pa), mode='full')
     lags = np.arange(-len(ref_pa) + 1, len(ref_pa))  # Lag values
     best_lag = lags[np.argmax(correlation)]
@@ -141,12 +138,9 @@ def emicorr(data, frequency, ref_pa, bin_numbers = 500, dataname = None):
     phase_amplitudes_period = np.interp(np.linspace(0,1,int(period_in_pixels)+1), np.linspace(0,1,500), shifted_pa)
     m, b = np.polyfit(shifted_pa , binned_vals, 1)
     vals_period = np.interp(np.linspace(0,1,int(period_in_pixels)+1), np.linspace(0,1,500), binned_vals)
-    #import pdb
-    #pdb.set_trace()
-    #pa_final = phase_amplitudes_period * m
+
     pa_final = vals_period
-    #import pdb
-    #pdb.set_trace()
+
 
     noise4 = pa_final[(phaseall * period_in_pixels).astype(int)]
 
@@ -157,7 +151,6 @@ def emicorr(data, frequency, ref_pa, bin_numbers = 500, dataname = None):
 
     plt.figure()
     plt.plot(np.arange(len(pa_final)), pa_final)
-    #plt.plot(np.arange(len(binned_vals)),binned_vals)
     plt.savefig("emicorr_profile_"+dataname+".png")
 
     return data - noise
@@ -255,7 +248,8 @@ def subtract_ref(data, noutputs):
         mean = np.mean(data[:,:,:N_REF,c_min:c_max], axis=(2,3))
         result[:,:,:,c_min:c_max] -= mean[:,:,np.newaxis,np.newaxis]
 
-    #Subtract ref along sides
+    if INSTRUMENT == "NIRSPEC":
+        return result
     mean = np.mean(result[:,:,:,:N_REF], axis=3) / 2 + np.mean(result[:,:,:,-N_REF:], axis=3) / 2
     result -= mean[:,:,:,np.newaxis]
     return result
@@ -316,8 +310,6 @@ def subtract_dark(data, nframes, groupgap):
         mask = np.zeros(dq.shape, dtype=bool)
     else:
         mask = dq > 0
-    #import pdb
-    #pdb.set_trace()
     return result, mask
 
 
@@ -508,7 +500,6 @@ for filename in args.filenames:
     print("Processing", filename)
     hdul = astropy.io.fits.open(filename)
 
-    #assert(hdul[0].header["INSTRUME"] == INSTRUMENT and hdul[0].header["FILTER"] == FILTER and hdul[0].header["SUBARRAY"] == SUBARRAY)
     
     #Assumptions for dark current subtraction
     nframes = hdul[0].header["NFRAMES"]
@@ -536,11 +527,8 @@ for filename in args.filenames:
     #data = data[:,5:]
     print("data shape is", data.shape)
     N_int, N_grp, N_row, N_col = data.shape
-    mask = get_mask()
-    #import pdb
-    #pdb.set_trace()
-    #data = row_by_row_background_subtraction(data)
 
+    mask = get_mask()
     if not SKIP_SUPERBIAS:
         print("Subtracting superbias")
         data = subtract_superbias(data)
@@ -574,7 +562,6 @@ for filename in args.filenames:
     read_noise = get_read_noise(gain)
     print("Getting slopes 1")
 
-    #original_data = np.copy(data)
 
     signal, error, residuals1 = get_slopes_initial(data, read_noise)
     if args.median_residuals is not None:
@@ -597,7 +584,6 @@ for filename in args.filenames:
         signal, error, flat_err = apply_flat(signal, error)
     signal *= (data.shape[1] - 1)
     error *= (data.shape[1] - 1)
-    #signal *= 46
     per_int_mask = per_int_mask | mask
     per_int_mask = per_int_mask | np.isnan(signal)
     sci_hdu = astropy.io.fits.ImageHDU(np.cpu(signal), name="SCI")

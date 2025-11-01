@@ -14,7 +14,9 @@ from scipy import optimize
 from astropy.stats import SigmaClip
 from constants import GAIN_FILE, RNOISE_FILE, TOP, BOT, LEFT, RIGHT, ROTATE
 from scipy.stats import median_abs_deviation as mad
+import os
 import argparse
+
 def plot_image(img, aperture, annulus_aperture):
     plt.imshow(img, interpolation='nearest', vmax = 30000, vmin = 20000, cmap='gray')
     
@@ -32,10 +34,7 @@ def cal_MAD(data):
 
 def source_by_peak(sources, i, file_name, manual_centroid = None):
     real_source = sources[sources["peak"] == sources["peak"].max()]
-
-    #real_source = real_source[real_source["xcentroid"] > 60 and 
-    #                                  real_source["xcentroid"] < 70]
-            
+       
     if len(real_source) == 0: 
         print("no source found for int {} in ".format(i)+file_name+", manually defined as {}".format(manual_centroid))
         xcentroid = manual_centroid[0]
@@ -89,8 +88,6 @@ def moments(data):
     """Returns (height, x, y, width_x, width_y)
     the gaussian parameters of a 2D distribution by calculating its
     moments """
-    #import pdb
-    #pdb.set_trace()
     total = np.nansum(data)
     X, Y = np.indices(data.shape)
     x = (X*data).sum()/total
@@ -108,11 +105,8 @@ def fit_gaussian(data, xc, yc, radius=4.0):
     for i in range(data.shape[0]):
         for j in range(data.shape[1]):
             if (i - xc) ** 2 + (j - yc) ** 2 > radius ** 2: mask[i][j] = True
-    #plt.imshow(data, aspect='auto')
     masked_img = ma.array(data / np.abs(np.median(data)), mask=mask)
-    #plt.figure()
-    #plt.imshow(masked_img)
-    #plt.show()
+
     params = moments(masked_img)
     errorfunction = lambda p: np.ravel(gaussian2d(*p)(*np.indices(masked_img.shape)) -
                                  masked_img)
@@ -137,7 +131,7 @@ def get_read_noise(gain):
             TOP-substrt_y : BOT-substrt_y,
             LEFT-substrt_x : RIGHT-substrt_x], dtype=np.float64) / np.sqrt(2)
 
-def ap_extract(filelist, X_WINDOW, Y_WINDOW, ap_size =4, annulus_r_in = 12, annulus_r_out = 26):
+def ap_extract(filelist, X_WINDOW, Y_WINDOW, ap_size =4, annulus_r_in = 12, annulus_r_out = 26, initial_guess = [128,128]):
     k = 0
     xc_list = []
     yc_list = []
@@ -156,7 +150,6 @@ def ap_extract(filelist, X_WINDOW, Y_WINDOW, ap_size =4, annulus_r_in = 12, annu
         print('Processing ', filename)
         with fits.open(filename) as hdul:
             data = hdul[1].data
-            #data = data[:,-1] - data[:,0]  # subtract the first frame from the last frame
             nint += data.shape[0]
 
     bkg_sub_imgarray = np.zeros((nint, int(X_WINDOW[1] - X_WINDOW[0]), int(Y_WINDOW[1] - Y_WINDOW[0])))
@@ -169,7 +162,7 @@ def ap_extract(filelist, X_WINDOW, Y_WINDOW, ap_size =4, annulus_r_in = 12, annu
             ERROR = hdul["ERR"].data
 
             cropped_data = data[:,Y_WINDOW[0]:Y_WINDOW[1], X_WINDOW[0]:X_WINDOW[1]]
-            #cropped_data = data
+
             for i in range(cropped_data.shape[0]):
                 img = cropped_data[i]
                 err_img = ERROR[i,Y_WINDOW[0]:Y_WINDOW[1], X_WINDOW[0]:X_WINDOW[1]]
@@ -178,13 +171,12 @@ def ap_extract(filelist, X_WINDOW, Y_WINDOW, ap_size =4, annulus_r_in = 12, annu
 
                 sources = daofind(img - median)  
                 if i == 0:
-                    xc, yc = 128, 128
+                    xc, yc = initial_guess[0], initial_guess[1]
                 xcentroid, ycentroid = source_by_peak(sources, i, file_name, manual_centroid = [xc, yc])
                 
                 xc, yc, second_x, second_y, cross_xy = source_by_accurate_moments(img, xcentroid, ycentroid)
     
                 positions = [(xc, yc)]
-                print(positions)
                 xc_list.append(xc)
                 yc_list.append(yc)
                 p = fit_gaussian(img.T, xc, yc)
@@ -201,7 +193,6 @@ def ap_extract(filelist, X_WINDOW, Y_WINDOW, ap_size =4, annulus_r_in = 12, annu
                     plot_image(img, aperture, annulus_aperture)
                     savefilename = file_name.split('/')[-1].split('.')[0]
                     plt.savefig(f'./img/{savefilename}_apertures_{i}.png')
-                    #plt.show()
             
                 aperstats = ApertureStats(img, annulus_aperture, sigma_clip = SigmaClip(sigma=5.0))
 
@@ -210,8 +201,6 @@ def ap_extract(filelist, X_WINDOW, Y_WINDOW, ap_size =4, annulus_r_in = 12, annu
                 bkg_sub_imgarray[k] = img - np.ones(bkg_sub_imgarray.shape[1:]) * bkg_mean[0]
                 total_bkd = (bkg_mean[0]) * aperture.area
                 bkg_list.append(bkg_mean[0])
-                #print("background per pixel is", bkg_mean[0])
-                #print("background in the target aperture is", total_bkd)
                 phot_table = aperture_photometry(img, aperture)
                 phot_bkgsub = phot_table['aperture_sum'] - total_bkd
                 print("flux in the aperture is", phot_table['aperture_sum'][0])
@@ -229,11 +218,6 @@ def ap_extract(filelist, X_WINDOW, Y_WINDOW, ap_size =4, annulus_r_in = 12, annu
 
                 var_ap = ApertureStats(err_img**2, aperture).sum[0]  # sum of var in ap
 
-                #rnoise_map   = get_read_noise(get_gain())[Y_WINDOW[0] : Y_WINDOW[1], X_WINDOW[0] : X_WINDOW[1]] ** 2
-                #rnoise_ap    = ApertureStats(rnoise_map, aperture).sum  # sum of var_rn in ap
-                #rnoise_ann   = ApertureStats(rnoise_map, annulus_aperture).sum   # sum of var_rn in ann
-
-
                 var_total    = var_ap + var_bgest #+ var_rnoise_ap + var_rnoise_ann
                 error  = np.sqrt(var_total)
                 flux_subbkg_list.append(phot_bkgsub[0])
@@ -241,7 +225,6 @@ def ap_extract(filelist, X_WINDOW, Y_WINDOW, ap_size =4, annulus_r_in = 12, annu
                 error_list.append(error)
                 var_ap_list.append(var_ap)
                 var_bgest_list.append(var_bgest)
-                #var_rnoise_list.append(rnoise_ap+rnoise_ann
                                       
 
                 k += 1
@@ -251,10 +234,6 @@ def ap_extract(filelist, X_WINDOW, Y_WINDOW, ap_size =4, annulus_r_in = 12, annu
 
 
 
-#no_cut_centroid = [698, 516]
-#cut_hw = 200
-
-
 parser = argparse.ArgumentParser(description="Extract aperture photometry.")
 parser.add_argument("-f", "--filenames", nargs="+", required=True,
                         help="One or more input rateints .fits files.")
@@ -262,31 +241,29 @@ args = parser.parse_args()
 stage1 = args.filenames
 stage1.sort()
 
-#xcentroid_int = no_cut_centroid[0] - X_WINDOW[0]
-#ycentroid_int = no_cut_centroid[1] - Y_WINDOW[0]
-#xcentroid_int = 698
-#ycentroid_int = 516
-#X_WINDOW = [698-200,698+200]
-#Y_WINDOW = [516-200, 516+200]
+
 X_WINDOW = [0,256]
 Y_WINDOW = [0,256]
 
+initial_guess = [128,128]
 apsize_list = [4]
 
-#annulus_r_in_list = [10,12,14,16,18,20]
-#annulus_r_out_list = [14,16,18,20,22,24,26,28,30,32]
 annulus_r_in_list = [26]
 annulus_r_out_list = [30]
-#annulus_r_out_list =  [20]
-#if os.path.exists('mad_dict.txt'):
-#    os.remove('mad_dict.txt')
+
+# Give a range of annulus sizes to test
+# annulus_r_in_list = [10,12,14,16,18,20]
+# annulus_r_out_list = [14,16,18,20,22,24,26,28,30,32]
+
+if os.path.exists('mad_dict.txt'):
+    os.remove('mad_dict.txt')
 
 
 
 with open('mad_dict_new.txt', 'a+') as f:
     f.write('ap_size annulus_r_in annulus_r_out mad\n')
 for ap_size in apsize_list:
-    #print("ap_size")
+
     for annulus_r_in in annulus_r_in_list:
         for annulus_r_out in annulus_r_out_list:
             if annulus_r_in < annulus_r_out and annulus_r_out - annulus_r_in >= 1: 
@@ -294,13 +271,13 @@ for ap_size in apsize_list:
                 flux_list, flux_subbkg_list, bkg_list, error_list, xc_list, yc_list, xwidth_list, ywidth_list, time_array, \
                 var_ap_list, var_bgest_list \
                      = ap_extract(stage1, X_WINDOW, Y_WINDOW, ap_size = ap_size,
-                                  annulus_r_in = annulus_r_in, annulus_r_out = annulus_r_out)
-                #print(len(flux_list), len(flux_subbkg_list), len(bkg_list), len(error_list), len(xc_list), len(yc_list), len(xwidth_list), len(ywidth_list), len(time_array))
+                                  annulus_r_in = annulus_r_in, annulus_r_out = annulus_r_out, initial_guess=initial_guess)
+                
                 normalized_flux_list = flux_subbkg_list / np.median(flux_subbkg_list)
                 trend = median_filter(normalized_flux_list, size=30)
                 detrended_flux = normalized_flux_list - trend
                 mad = cal_MAD(detrended_flux)
-                with open('mad_dict_new.txt', 'a+') as f:
+                with open('mad_dict.txt', 'a+') as f:
                     f.write(f"{ap_size} {annulus_r_in} {annulus_r_out} {mad}\n")
 
                 plt.figure(figsize=(10, 5))
@@ -308,7 +285,7 @@ for ap_size in apsize_list:
                 plt.plot(time_array, trend, 'r-', label='median filter')
                 plt.title(f'MAD= {int(mad*1e6)} ppm, ap_size={ap_size}, annulus_r_in={annulus_r_in}, annulus_r_out={annulus_r_out}')
                 plt.savefig(f'./img/ap{ap_size}_in{annulus_r_in}_out{annulus_r_out}_lightcurve.png')
-                #plt.show()
+
                 df = pd.DataFrame({
                     'flux': flux_list,
                     'flux_subbkg': flux_subbkg_list,
@@ -323,7 +300,6 @@ for ap_size in apsize_list:
                     'var_bgest': var_bgest_list,
                 })
                 df.to_csv(f'./ap_extract_ap{ap_size}_in{annulus_r_in}_out{annulus_r_out}.csv', index=False)
-                #df.to_csv(f'./apcorr_0_8.csv', index = False)
                 plt.close()
 
 
