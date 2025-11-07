@@ -2,6 +2,14 @@
 
 Simple, fast, barebones, utilitarian.  Spartan.
 
+--------------------------------------------------------------------------------------------------------------------------------
+**New (Oct 27, 2025)**: Photometry module + detailed documentation and tutorial.
+
+**Documentation:** https://sparta-doc.readthedocs.io/en/latest/
+
+A more user-friendly spectroscopic reduction workflow for all JWST exoplanet instruments within SPARTA is planned for early 2026. Until then, examples of NIRCam/MIRI spectroscopy are available on the master branch.
+
+----------------------------------------------------------------------------------------------------------------------------------
 How to use SPARTA to analyze MIRI/LRS or NIRCAM data of exoplanets:
 
 1. Open constants.py.  Change INSTRUMENT to either MIRI, NIRCAM, or NIRSPEC (for which only PRISM is currently supported).  Change SUBARRAY and FILTER to the desired values (found in the file header).  The reference files should be correct and relatively up to date, but if you want to verify, go to https://jwst-crds.stsci.edu/.
