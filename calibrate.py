@@ -6,7 +6,6 @@ import numexpr as ne
 import time
 import sys
 import os.path
-import pdb
 import gc
 import pdb
 import argparse
@@ -62,8 +61,9 @@ def get_emicorr_ref():
     af = asdf.open(EMICORR_FILE)
     tree = af.tree 
     frequency = tree["frequencies"]['Hz10']['frequency']
-    phase_amplitudes = tree["frequencies"]['Hz10']['phase_amplitudes']
-
+    phase_amplitudes = np.copy(tree["frequencies"]['Hz10']['phase_amplitudes'])
+    af.close()
+    
     return frequency, phase_amplitudes
 
 def emicorr(data, frequency, ref_pa, bin_numbers = 500, dataname = None):
@@ -499,7 +499,7 @@ args = parser.parse_args()
 for filename in args.filenames:
     print("Processing", filename)
     hdul = astropy.io.fits.open(filename)
-
+    assert(SUBARRAY == hdul[0].header["SUBARRAY"])
     
     #Assumptions for dark current subtraction
     nframes = hdul[0].header["NFRAMES"]
