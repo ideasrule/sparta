@@ -6,7 +6,8 @@ RIGHT_MARGIN_BKD = 5
 HIGH_ERROR = 1e10
 OPT_EXTRACT_WINDOW = 5
 INSTRUMENT = "MIRI_IMAGE" #Change this
-SUBARRAY = "SUB256" ### Change this
+SUBARRAY = "SUB128" ### Change this
+
 if INSTRUMENT == "NIRSPEC":    
     SUBARRAY = "SUB512" #PRISM
     FILTER = "CLEAR" 
@@ -42,7 +43,6 @@ if INSTRUMENT == "NIRSPEC":
 
 
 if INSTRUMENT == "MIRI_IMAGE":
-
     FILTER = "F1500W"
     BAD_GRPS = 0 #11 before, 5 before that
     ROTATE = 0
@@ -59,9 +59,9 @@ if INSTRUMENT == "MIRI_IMAGE":
     DARK_FILE = REF_DIR + "jwst_miri_dark_0105.fits"
     FLAT_FILE = REF_DIR + "jwst_miri_flat_0834.fits"
     RNOISE_FILE = REF_DIR + "jwst_miri_readnoise_0085.fits"
-    MASK_FILE = REF_DIR + "jwst_miri_mask_0067.fits"
+    MASK_FILE = REF_DIR + "jwst_miri_mask_0092.fits"
     WCS_FILE = REF_DIR + "jwst_miri_specwcs_0006.fits"
-    EMICORR_FILE = REF_DIR + "jwst_miri_emicorr_0002.asdf"
+    EMICORR_FILE = REF_DIR + "jwst_miri_emicorr_0003.asdf"
     SUPERBIAS_FILE = None
 
 
