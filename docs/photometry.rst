@@ -60,13 +60,13 @@ to do classic aperture photometry to extract the light curve.
 
 Before running ``ap_extract.py``, make sure to update the following parameters:
 
-- ``apsize_list``  
+- ``ap_size``  
   Aperture radius for photometric extraction.  
 
-- ``annulus_r_in_list``  
+- ``annulus_r_in``  
   Inner radius of the sky background annulus.  
 
-- ``annulus_r_out_list``  
+- ``annulus_r_out``  
   Outer radius of the sky background annulus.  
 
 

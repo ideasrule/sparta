@@ -4,7 +4,7 @@ import matplotlib.pyplot as plt
 from astropy.stats import sigma_clipped_stats
 from photutils.detection import DAOStarFinder
 import glob
-from scipy.ndimage import median_filter
+from scipy.ndimage import median_filter, uniform_filter
 import numpy.ma as ma
 import pandas as pd
 from photutils.aperture import ApertureStats as ApertureStats
@@ -13,12 +13,11 @@ from photutils.aperture import CircularAnnulus, CircularAperture
 from scipy import optimize
 from astropy.stats import SigmaClip
 from constants import GAIN_FILE, RNOISE_FILE, TOP, BOT, LEFT, RIGHT, ROTATE
-from scipy.stats import median_abs_deviation as mad
 import os
 import argparse
 
 def plot_image(img, aperture, annulus_aperture):
-    plt.imshow(img, interpolation='nearest', vmax = 30000, vmin = 20000, cmap='gray')
+    plt.imshow(img, interpolation='nearest', vmax = np.percentile(img, 98), vmin = np.percentile(img, 5), cmap='gray')
     
     ap_patches = aperture.plot(color='white', lw=2,
                                label='Photometry aperture')
@@ -27,9 +26,6 @@ def plot_image(img, aperture, annulus_aperture):
     handles = (ap_patches[0], ann_patches[0])
     plt.legend(loc=(0.17, 0.05), facecolor='#458989', labelcolor='white',
                handles=handles, prop={'weight': 'bold', 'size': 11})
-    
-def cal_MAD(data):
-    return np.median(np.abs(data - np.median(data)))
     
 
 def source_by_peak(sources, i, file_name, manual_centroid = None):
@@ -232,8 +228,6 @@ def ap_extract(filelist, X_WINDOW, Y_WINDOW, ap_size =4, annulus_r_in = 12, annu
 
     return flux_list, flux_subbkg_list, bkg_list, error_list, xc_list, yc_list, xwidth_list, ywidth_list, time_array, var_ap_list, var_bgest_list
 
-
-
 parser = argparse.ArgumentParser(description="Extract aperture photometry.")
 parser.add_argument("-f", "--filenames", nargs="+", required=True,
                         help="One or more input rateints .fits files.")
@@ -241,65 +235,45 @@ args = parser.parse_args()
 stage1 = args.filenames
 stage1.sort()
 
-
-X_WINDOW = [0,256]
-Y_WINDOW = [0,256]
-
-initial_guess = [128,128]
-apsize_list = [4]
-
-annulus_r_in_list = [26]
-annulus_r_out_list = [30]
-
-# Give a range of annulus sizes to test
-# annulus_r_in_list = [10,12,14,16,18,20]
-# annulus_r_out_list = [14,16,18,20,22,24,26,28,30,32]
-
-if os.path.exists('mad_dict.txt'):
-    os.remove('mad_dict.txt')
+xoffset = 2
+yoffset = -3
+hw = 16
+X_WINDOW = [(RIGHT - LEFT)//2 - hw + xoffset, (RIGHT - LEFT)//2 + hw + xoffset]
+Y_WINDOW = [(BOT - TOP)//2 - hw + yoffset, (BOT - TOP)//2 + hw + yoffset]
+initial_guess = [16,16]
+ap_size = 4
+annulus_r_in = 10
+annulus_r_out = 15
 
 
+print(f"ap_size: {ap_size}, annulus_r_in: {annulus_r_in}, annulus_r_out: {annulus_r_out}")
+flux_list, flux_subbkg_list, bkg_list, error_list, xc_list, yc_list, xwidth_list, ywidth_list, time_array, \
+var_ap_list, var_bgest_list \
+     = ap_extract(stage1, X_WINDOW, Y_WINDOW, ap_size = ap_size,
+                  annulus_r_in = annulus_r_in, annulus_r_out = annulus_r_out, initial_guess=initial_guess)
 
-with open('mad_dict_new.txt', 'a+') as f:
-    f.write('ap_size annulus_r_in annulus_r_out mad\n')
-for ap_size in apsize_list:
+normalized_flux_list = flux_subbkg_list / np.median(flux_subbkg_list)
+N = len(normalized_flux_list)
+print("Detrended STD (first 10% trimmed)", np.std(normalized_flux_list[N//10:] - uniform_filter(normalized_flux_list[N//10:], 32)))
 
-    for annulus_r_in in annulus_r_in_list:
-        for annulus_r_out in annulus_r_out_list:
-            if annulus_r_in < annulus_r_out and annulus_r_out - annulus_r_in >= 1: 
-                print(f"ap_size: {ap_size}, annulus_r_in: {annulus_r_in}, annulus_r_out: {annulus_r_out}")
-                flux_list, flux_subbkg_list, bkg_list, error_list, xc_list, yc_list, xwidth_list, ywidth_list, time_array, \
-                var_ap_list, var_bgest_list \
-                     = ap_extract(stage1, X_WINDOW, Y_WINDOW, ap_size = ap_size,
-                                  annulus_r_in = annulus_r_in, annulus_r_out = annulus_r_out, initial_guess=initial_guess)
-                
-                normalized_flux_list = flux_subbkg_list / np.median(flux_subbkg_list)
-                trend = median_filter(normalized_flux_list, size=30)
-                detrended_flux = normalized_flux_list - trend
-                mad = cal_MAD(detrended_flux)
-                with open('mad_dict.txt', 'a+') as f:
-                    f.write(f"{ap_size} {annulus_r_in} {annulus_r_out} {mad}\n")
+plt.figure(figsize=(10, 5))
+plt.plot(time_array, normalized_flux_list, 'o', markersize=1)
+plt.savefig(f'./img/ap{ap_size}_in{annulus_r_in}_out{annulus_r_out}_lightcurve.png')
 
-                plt.figure(figsize=(10, 5))
-                plt.plot(time_array, normalized_flux_list, 'o', markersize=1)
-                plt.plot(time_array, trend, 'r-', label='median filter')
-                plt.title(f'MAD= {int(mad*1e6)} ppm, ap_size={ap_size}, annulus_r_in={annulus_r_in}, annulus_r_out={annulus_r_out}')
-                plt.savefig(f'./img/ap{ap_size}_in{annulus_r_in}_out{annulus_r_out}_lightcurve.png')
-
-                df = pd.DataFrame({
-                    'flux': flux_list,
-                    'flux_subbkg': flux_subbkg_list,
-                    'bkg': bkg_list,
-                    'error': error_list,
-                    'xc': xc_list,
-                    'yc': yc_list,
-                    'xwidth': xwidth_list,
-                    'ywidth': ywidth_list,
-                    'time': time_array,
-                    'var_ap': var_ap_list,
-                    'var_bgest': var_bgest_list,
-                })
-                df.to_csv(f'./ap_extract_ap{ap_size}_in{annulus_r_in}_out{annulus_r_out}.csv', index=False)
-                plt.close()
+df = pd.DataFrame({
+    'flux': flux_list,
+    'flux_subbkg': flux_subbkg_list,
+    'bkg': bkg_list,
+    'error': error_list,
+    'xc': xc_list,
+    'yc': yc_list,
+    'xwidth': xwidth_list,
+    'ywidth': ywidth_list,
+    'time': time_array,
+    'var_ap': var_ap_list,
+    'var_bgest': var_bgest_list,
+})
+df.to_csv(f'./ap_extract_ap{ap_size}_in{annulus_r_in}_out{annulus_r_out}.csv', index=False)
+plt.close()
 
 
