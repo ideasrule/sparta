@@ -469,8 +469,6 @@ def compute_lnprob_pc(
         bf_model = model + gp.predict(residuals, return_cov=False)
         if plot_result:
             print("-----------Plotting...----------")
-            import pdb
-            pdb.set_trace()
             plot_fit_and_residuals(bjds, fluxes, scaled_errors, bf_model, binsize=100, plot_phase=False, astro_model=astro, systematics=systematics)
             if not os.path.exists(lc_savepath):
                 with open(lc_savepath, "w") as f:
@@ -694,8 +692,8 @@ def compute_lnprob_eclipse(
     else:
         if "A" in all_params:
             A = all_params["A"]
-        if "tau" in all_params:
-            tau = all_params["tau"]
+        if "log_tau" in all_params:
+            tau = np.exp(all_params["log_tau"])
         if "y_coeff" in all_params:
             y_coeff = all_params["y_coeff"]
         if "x_coeff" in all_params:
@@ -706,9 +704,7 @@ def compute_lnprob_eclipse(
             yw_coeff = all_params["yw_coeff"]
         if "m" in all_params:
             m = all_params["m"]
-        systematics = 1.0 + m * (bjds - np.mean(bjds))
-        if 'A' in free_names and 'tau' in free_names:
-            systematics += A * np.exp(- (bjds - bjds[0]) / tau)
+        systematics = 1.0 + m * (bjds - np.mean(bjds)) + A * np.exp(-(bjds-bjds[0])/tau)
         if 'y_coeff' in free_names:
             systematics += y_coeff * y
         if 'x_coeff' in free_names:
@@ -844,7 +840,6 @@ def compute_lnprob_eclipse(
                                 model[i] / this_Fstar,
                                 residuals[i] / this_Fstar,
                                 visit_str,
-            print(eclipse_model.get_t_secondary(batman_params))
             
             # optionally log the shared error_factor for diagnostics
                             )
