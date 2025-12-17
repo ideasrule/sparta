@@ -692,7 +692,10 @@ def compute_lnprob_eclipse(
     else:
         if "A" in all_params:
             A = all_params["A"]
-        if "log_tau" in all_params:
+        if "tau" in all_params:
+            tau = all_params["tau"]
+            assert("log_tau" not in all_params)
+        elif "log_tau" in all_params:
             tau = np.exp(all_params["log_tau"])
         if "y_coeff" in all_params:
             y_coeff = all_params["y_coeff"]
