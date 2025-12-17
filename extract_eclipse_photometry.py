@@ -8,6 +8,7 @@ from read_config import *
 from emcee_methods import *
 import argparse
 import matplotlib.pyplot as plt
+from scipy.ndimage import uniform_filter
 import corner
 from dynesty import NestedSampler
 import ast
@@ -134,7 +135,7 @@ def load_data_csv(data_path, start_wave, end_wave, exclude=[[0,300]]):
         df["xc"].to_numpy()[mask],
         df["yc"].to_numpy()[mask],
         df["xwidth"].to_numpy()[mask],
-        df["xwidth"].to_numpy()[mask],
+        df["ywidth"].to_numpy()[mask],
     )
     else:
     	bjds, fluxes, flux_errors, x, y, xw, yw = (
@@ -144,7 +145,7 @@ def load_data_csv(data_path, start_wave, end_wave, exclude=[[0,300]]):
         df["xc"].to_numpy()[mask],
         df["yc"].to_numpy()[mask],
         df["xwidth"].to_numpy()[mask],
-        df["xwidth"].to_numpy()[mask],
+        df["ywidth"].to_numpy()[mask],
     )
 
 
@@ -337,7 +338,7 @@ def main():
         else:
             # Single visit: allow either [[a,b]] or [a,b] or empty
             data_paths = [datapath_field.strip()]
-            if isinstance(parsed_exclude[0], list) if parsed_exclude else False:
+            if parsed_exclude and isinstance(parsed_exclude[0], list):
                 exclude_list = [parsed_exclude[0]]
             else:
                 exclude_list = [parsed_exclude] if parsed_exclude else [[]]
@@ -392,7 +393,9 @@ def main():
     visit_indices = np.array(visit_indices)
 
     plt.figure()
-    plt.errorbar(bjds, fluxes, yerr = errors, ms = 1)
+    plt.errorbar(bjds - bjds[0], fluxes, yerr = errors, ms = 1, color='gray', alpha=0.2)
+    b = len(bjds) // 15
+    plt.errorbar(uniform_filter(bjds - bjds[0], b)[::b], uniform_filter(fluxes, b)[::b], yerr = errors[::b] / np.sqrt(b), fmt='.')    
     plt.show()
     
     if "t0" in free_dict:
@@ -542,7 +545,7 @@ def main():
 
         sampler = NestedSampler(
             loglike, prior_transform, ndim,
-            nlive=nlive, bound=bounds
+            nlive=nlive, bound=bounds, sample=sampling
         )
         print("\nRunning dynesty nested sampling...")
         sampler.run_nested(dlogz = dlogz)
@@ -584,7 +587,7 @@ def main():
             lower = median - np.percentile(flat_chain[:, free_names.index(nm)], 16)
             upper = np.percentile(flat_chain[:, free_names.index(nm)], 84) - median
         print(f"  {nm:<12s} = {median:.6f} +{upper:.6f} -{lower:.6f}")
-    print("saveing parameter results to  ", params_savepath)
+    print("Saving parameter results to  ", params_savepath)
     with open(params_savepath, "w") as f:
         f.write("# Free parameters:\n")
         for nm in free_names:
